@@ -117,6 +117,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   function applyWriteAvailability() {
     const blocked = !isOnline || writeInFlight;
+    const isFinalized = currentMatch?.status === "finalized";
     const scoreButtons = [
       document.getElementById("btn-add-a"),
       document.getElementById("btn-add-b"),
@@ -127,17 +128,26 @@ window.addEventListener("DOMContentLoaded", () => {
 
     for (const button of scoreButtons) {
       if (!button) continue;
-      if (blocked || currentMatch?.status === "finalized") {
+      if (blocked || isFinalized) {
         button.setAttribute("disabled", "true");
         button.style.opacity = "0.5";
+      } else {
+        button.removeAttribute("disabled");
+        button.style.opacity = "1";
       }
     }
 
-    if (blocked) {
+    if (blocked || isFinalized) {
       undoButton?.setAttribute("disabled", "true");
       finalizeButton?.setAttribute("disabled", "true");
       manualButton?.setAttribute("disabled", "true");
     } else {
+      if (currentMatch?.scoreHistory?.length > 0) {
+        undoButton?.removeAttribute("disabled");
+      } else {
+        undoButton?.setAttribute("disabled", "true");
+      }
+      finalizeButton?.removeAttribute("disabled");
       manualButton?.removeAttribute("disabled");
     }
   }
@@ -171,7 +181,7 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   async function syncMatchesFromServer({ initial = false } = {}) {
-    if (!sessionToken || syncInFlight || writeInFlight) return false;
+    if (!sessionToken || syncInFlight || (writeInFlight && !initial)) return false;
 
     syncInFlight = true;
     if (initial) setConnectionLabel("CONNECTING", "saving");
@@ -233,6 +243,7 @@ window.addEventListener("DOMContentLoaded", () => {
     setSavingState(true);
     applyWriteAvailability();
 
+    let conflict = false;
     try {
       const payload = await requestJson("/api/match-action", {
         method: "POST",
@@ -256,6 +267,7 @@ window.addEventListener("DOMContentLoaded", () => {
       return payload;
     } catch (error) {
       if (error.status === 409 && error.payload?.match) {
+        conflict = true;
         applySingleMatch(error.payload.match);
         setConnectionLabel("CONFLICT — REFRESHED", "saving");
         setTimeout(() => {
@@ -268,12 +280,33 @@ window.addEventListener("DOMContentLoaded", () => {
         setOnlineStatus(false);
       }
 
-      setSavingState(false, true);
+      if (!conflict) setSavingState(false, true);
       throw error;
     } finally {
       writeInFlight = false;
-      applyWriteAvailability();
+      if (currentMatch) renderActiveScoreboard();
+      else applyWriteAvailability();
     }
+  }
+
+  async function authenticateAndEnter(court, pin, errorEl, pinInput) {
+    const payload = await requestJson("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ court, pin }),
+    });
+
+    sessionToken = payload.token;
+    localStorage.setItem(SESSION_TOKEN_KEY, sessionToken);
+    localStorage.setItem("saved_court", String(payload.court));
+    localStorage.setItem("saved_uid", "postgres-session");
+
+    const loaded = await syncMatchesFromServer({ initial: true });
+    if (!loaded) throw new Error("Could not load the shared match schedule.");
+
+    originalLoginSuccess(payload.court, "postgres-session");
+    startMatchSync();
+    if (pinInput) pinInput.value = "";
+    errorEl?.classList.add("hidden");
   }
 
   initFirebase = function initSharedPostgres() {
@@ -311,33 +344,26 @@ window.addEventListener("DOMContentLoaded", () => {
     errorEl?.classList.add("hidden");
 
     try {
-      const payload = await requestJson("/api/login", {
-        method: "POST",
-        body: JSON.stringify({ court: currentCourt, pin }),
-      });
-
-      sessionToken = payload.token;
-      localStorage.setItem(SESSION_TOKEN_KEY, sessionToken);
-      localStorage.setItem("saved_court", String(payload.court));
-      localStorage.setItem("saved_uid", "postgres-session");
-
-      const loaded = await syncMatchesFromServer({ initial: true });
-      if (!loaded) throw new Error("Could not load the shared match schedule.");
-
-      originalLoginSuccess(payload.court, "postgres-session");
-      startMatchSync();
-      if (pinInput) pinInput.value = "";
+      await authenticateAndEnter(currentCourt, pin, errorEl, pinInput);
     } catch (error) {
       sessionToken = "";
       localStorage.removeItem(SESSION_TOKEN_KEY);
+      localStorage.removeItem("saved_uid");
       if (errorEl) {
         errorEl.textContent = error.message || "Login failed.";
         errorEl.classList.remove("hidden");
       }
-      setOnlineStatus(Boolean(navigator.onLine));
+      if (navigator.onLine) {
+        isOnline = true;
+        setOnlineStatus(true);
+      } else {
+        isOnline = false;
+        setOnlineStatus(false);
+      }
     } finally {
       writeInFlight = false;
-      applyWriteAvailability();
+      if (currentMatch) renderActiveScoreboard();
+      else applyWriteAvailability();
     }
   };
 
@@ -359,6 +385,32 @@ window.addEventListener("DOMContentLoaded", () => {
   logoutSession = function logoutServerSession() {
     clearServerSession(true);
     checkHealth();
+  };
+
+  validateAdminPasscode = async function validateServerAdminPasscode() {
+    const pinInput = document.getElementById("admin-passcode-input");
+    const errorEl = document.getElementById("admin-passcode-error");
+    const pin = pinInput?.value || "";
+    if (pin.length < 4 || writeInFlight) return;
+
+    currentCourt = "admin";
+    writeInFlight = true;
+    errorEl?.classList.add("hidden");
+
+    try {
+      await authenticateAndEnter("admin", pin, errorEl, pinInput);
+      closeAdminGate();
+    } catch (error) {
+      sessionToken = "";
+      localStorage.removeItem(SESSION_TOKEN_KEY);
+      if (errorEl) {
+        errorEl.textContent = error.message || "Admin login failed.";
+        errorEl.classList.remove("hidden");
+      }
+    } finally {
+      writeInFlight = false;
+      if (currentMatch) renderActiveScoreboard();
+    }
   };
 
   incrementScore = async function incrementSharedScore(team) {
