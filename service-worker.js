@@ -1,4 +1,4 @@
-const CACHE_NAME = "pickleball-social-v2";
+const CACHE_NAME = "pickleball-social-v3-postgres";
 const ASSETS = [
   "./",
   "./index.html",
@@ -9,56 +9,59 @@ const ASSETS = [
   "./manifest.json"
 ];
 
-// Install Event
-self.addEventListener("install", (e) => {
-  e.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS);
-    }).then(() => self.skipWaiting())
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches
+      .open(CACHE_NAME)
+      .then((cache) => cache.addAll(ASSETS))
+      .then(() => self.skipWaiting())
   );
 });
 
-// Activate Event
-self.addEventListener("activate", (e) => {
-  e.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
-        keys.map((key) => {
-          if (key !== CACHE_NAME) {
-            return caches.delete(key);
-          }
-        })
-      );
-    }).then(() => self.clients.claim())
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys.map((key) => (key === CACHE_NAME ? null : caches.delete(key)))
+        )
+      )
+      .then(() => self.clients.claim())
   );
 });
 
-// Fetch Event - Cache First with Network Fallback
-self.addEventListener("fetch", (e) => {
-  // Only handle GET requests and local assets
-  if (e.request.method !== "GET" || !e.request.url.startsWith(self.location.origin)) {
+self.addEventListener("fetch", (event) => {
+  const request = event.request;
+  const url = new URL(request.url);
+
+  if (request.method !== "GET" || url.origin !== self.location.origin) return;
+
+  // Scores must always come from the shared server. Never cache API responses.
+  if (url.pathname.startsWith("/api/")) {
+    event.respondWith(fetch(request));
     return;
   }
-  
-  e.respondWith(
-    caches.match(e.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Fetch fresh copy in the background to keep cache warm
-        fetch(e.request).then((networkResponse) => {
-          if (networkResponse.status === 200) {
-            caches.open(CACHE_NAME).then((cache) => cache.put(e.request, networkResponse));
-          }
-        }).catch(() => { /* Ignore offline fetch errors */ });
-        return cachedResponse;
-      }
-      
-      return fetch(e.request).then((networkResponse) => {
-        if (networkResponse.status === 200) {
-          const responseClone = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(e.request, responseClone));
+
+  // Network-first prevents an old app.js or firebase-config.js from keeping a
+  // phone in Local Demo Mode after a deployment. Cached files remain available
+  // only as an offline fallback.
+  event.respondWith(
+    fetch(request)
+      .then((response) => {
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
         }
-        return networkResponse;
-      });
-    })
+        return response;
+      })
+      .catch(async () => {
+        const cached = await caches.match(request);
+        if (cached) return cached;
+        if (request.mode === "navigate") {
+          return caches.match("./index.html");
+        }
+        throw new Error("Offline and no cached response is available.");
+      })
   );
 });
