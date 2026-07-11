@@ -1,0 +1,6 @@
+{
+  "name": "Mixed Pickleball Social",
+  "description": "A mobile-first scoring and real-time leaderboard app for The Social Circle mixed pickleball tournaments.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

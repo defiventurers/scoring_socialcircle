@@ -1,0 +1,576 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>The Social Circle - Mixed Pickleball Social</title>
+    
+    <!-- PWA Elements -->
+    <link rel="manifest" href="./manifest.json" />
+    <meta name="theme-color" content="#0E3A2F" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    
+    <!-- External Styles & Fonts -->
+    <link rel="stylesheet" href="./styles.css" />
+    
+    <!-- Lucide Icons CDN -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+  </head>
+  <body>
+    <div id="app-container">
+      
+      <!-- --- CONNECTION STATUS BAR --- -->
+      <div id="connection-bar">
+        <div class="status-indicator">
+          <div id="connection-dot" class="status-dot offline"></div>
+          <span id="connection-text">Connecting...</span>
+        </div>
+        <div id="firebase-mode-badge" class="font-mono text-xs" style="color: var(--gold-accent);">
+          Local Demo Mode
+        </div>
+      </div>
+
+      <!-- ============================================ -->
+      <!-- 1. LOGIN / COURT SELECTION SCREEN -->
+      <!-- ============================================ -->
+      <div id="login-screen" class="screen">
+        <div class="login-header">
+          <h1>The Social Circle</h1>
+          <p>Mixed Pickleball Social</p>
+        </div>
+        
+        <div class="login-content">
+          <!-- Step 1: Select Court -->
+          <div id="login-step-court">
+            <h3 class="login-step-title">Select Your Assigned Court</h3>
+            <div class="court-grid">
+              <div class="court-card" onclick="selectCourt(1)">
+                <span class="number">1</span>
+                <span class="label">Court</span>
+              </div>
+              <div class="court-card" onclick="selectCourt(2)">
+                <span class="number">2</span>
+                <span class="label">Court</span>
+              </div>
+              <div class="court-card" onclick="selectCourt(3)">
+                <span class="number">3</span>
+                <span class="label">Court</span>
+              </div>
+              <div class="court-card" onclick="selectCourt(4)">
+                <span class="number">4</span>
+                <span class="label">Court</span>
+              </div>
+            </div>
+            
+            <div style="margin-top: 24px; text-align: center;">
+              <button class="btn btn-outline" style="width: 100%; min-height: 48px;" onclick="tryAdminLoginDirect()">
+                <i data-lucide="shield"></i> Admin Access
+              </button>
+            </div>
+          </div>
+          
+          <!-- Step 2: Enter Court PIN -->
+          <div id="login-step-pin" class="hidden">
+            <h3 class="login-step-title">Security Authentication</h3>
+            
+            <div class="pin-form-container">
+              <div class="selected-court-banner">
+                <span class="selected-court-text" id="selected-court-title">Court 1 Assigned</span>
+                <button class="btn-inline-change" onclick="goBackToCourts()">Change</button>
+              </div>
+              
+              <div class="form-group">
+                <label class="form-label" for="court-pin-input">Enter Court PIN</label>
+                <input 
+                  type="password" 
+                  id="court-pin-input" 
+                  class="form-input" 
+                  placeholder="••••"
+                  inputmode="numeric" 
+                  pattern="[0-9]*" 
+                  maxlength="4"
+                  autocomplete="one-time-code"
+                />
+              </div>
+              
+              <div id="login-error" style="color: var(--danger); font-size: 13px; text-align: center; font-weight: 600;" class="hidden">
+                Invalid PIN. Please try again.
+              </div>
+              
+              <button class="btn btn-primary" onclick="submitPinLogin()">
+                <i data-lucide="lock"></i> Authenticate Referee
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================ -->
+      <!-- 2. MAIN APPLICATION DASHBOARD -->
+      <!-- ============================================ -->
+      <div id="dashboard-screen" class="screen hidden">
+        
+        <!-- Header -->
+        <header>
+          <div class="header-title-area">
+            <h2 id="referee-court-title">COURT 1 REFEREE</h2>
+            <span class="header-subtitle" id="referee-round-title">ROUND 1 OF 20</span>
+          </div>
+          
+          <!-- Desktop navigation links (Visible only on 900px+ width) -->
+          <div class="desktop-nav">
+            <button class="desktop-nav-btn active" onclick="switchTab('score')">Score</button>
+            <button class="desktop-nav-btn" onclick="switchTab('matches')">Matches</button>
+            <button class="desktop-nav-btn" onclick="switchTab('leaderboard')">Leaderboard</button>
+            <button class="desktop-nav-btn" onclick="switchTab('rules')">Rules</button>
+            <button id="desktop-admin-nav" class="desktop-nav-btn hidden" onclick="switchTab('admin')">Admin</button>
+          </div>
+          
+          <div class="header-actions">
+            <button class="btn-logout" onclick="logoutSession()">Logout</button>
+          </div>
+        </header>
+
+        <!-- Main Workspace Panels (Left/Right grid on desktop, tabs on mobile) -->
+        <div class="main-panels">
+          
+          <!-- ======================================== -->
+          <!-- A. TAB: SCORE ENTRY PANEL -->
+          <!-- ======================================== -->
+          <div id="score-panel" class="tab-panel active">
+            
+            <!-- Match Status & Meta Bar -->
+            <div class="match-meta-bar">
+              <div class="meta-item">
+                <span class="meta-label">Round</span>
+                <span class="meta-val" id="score-round-num">-</span>
+              </div>
+              <div class="meta-item" style="border-left: 1px solid var(--border-color); border-right: 1px solid var(--border-color); padding: 0 16px;">
+                <span class="meta-label">Time Scheduled</span>
+                <span class="meta-val" id="score-time-val">-</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Match Status</span>
+                <span class="meta-val" id="score-status-val">-</span>
+              </div>
+            </div>
+
+            <!-- Team Scores Layout -->
+            <div class="score-teams-container">
+              
+              <!-- TEAM A CARD -->
+              <div class="team-score-card team-a" id="card-team-a">
+                <div class="team-header-row">
+                  <span class="team-badge a">Team A</span>
+                  <div class="serving-badge hidden" id="serve-badge-a">
+                    <i data-lucide="zap" style="width: 12px; height: 12px;"></i> SERVING
+                  </div>
+                </div>
+                <div class="players-display">
+                  <span class="player-name" id="player-a1">Player 1</span>
+                  <span class="player-name" id="player-a2">Player 2</span>
+                </div>
+                <div class="score-display-wrapper">
+                  <span class="score-number" id="score-val-a">0</span>
+                  <button class="btn-score-tap touch-action-manipulation" id="btn-add-a" onclick="incrementScore('A')">
+                    <i data-lucide="plus"></i> TEAM A
+                  </button>
+                </div>
+              </div>
+
+              <!-- TEAM B CARD -->
+              <div class="team-score-card team-b" id="card-team-b">
+                <div class="team-header-row">
+                  <span class="team-badge b">Team B</span>
+                  <div class="serving-badge hidden" id="serve-badge-b">
+                    <i data-lucide="zap" style="width: 12px; height: 12px;"></i> SERVING
+                  </div>
+                </div>
+                <div class="players-display">
+                  <span class="player-name" id="player-b1">Player 1</span>
+                  <span class="player-name" id="player-b2">Player 2</span>
+                </div>
+                <div class="score-display-wrapper">
+                  <span class="score-number" id="score-val-b">0</span>
+                  <button class="btn-score-tap touch-action-manipulation" id="btn-add-b" onclick="incrementScore('B')">
+                    <i data-lucide="plus"></i> TEAM B
+                  </button>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Voice Synthesizer Settings Panel -->
+            <div class="voice-settings-card">
+              <div class="voice-info">
+                <span class="voice-title">Vocal Score Calls</span>
+                <span class="voice-subtitle">Announces points after scores save</span>
+              </div>
+              <div class="voice-actions">
+                <button id="btn-voice-test" class="btn-toggle-voice" onclick="testVoiceCall()">Test</button>
+                <button id="btn-voice-toggle" class="btn-toggle-voice active" onclick="toggleVoicePreference()">Voice ON</button>
+              </div>
+            </div>
+
+            <!-- 8-Minute Timed Rally Widget -->
+            <div class="timer-container">
+              <div class="meta-label">8-Minute Duration Match Timer</div>
+              <div class="timer-display" id="match-timer-val">08:00</div>
+              <div class="timer-buttons">
+                <button class="btn-timer-icon" onclick="startTimer()"><i data-lucide="play" style="width: 16px; height: 16px; color: var(--success);"></i></button>
+                <button class="btn-timer-icon" onclick="pauseTimer()"><i data-lucide="pause" style="width: 16px; height: 16px; color: var(--warning);"></i></button>
+                <button class="btn-timer-icon" onclick="resetTimer()"><i data-lucide="rotate-ccw" style="width: 16px; height: 16px; color: var(--text-muted);"></i></button>
+              </div>
+            </div>
+
+            <!-- Quick Scoring & Actions Row -->
+            <div class="score-control-grid">
+              <button class="btn btn-outline" id="btn-score-undo" onclick="performUndo()" disabled>
+                <i data-lucide="undo-2"></i> Undo Point
+              </button>
+              <button class="btn btn-secondary" onclick="openQuickScoreSheet()">
+                <i data-lucide="keyboard"></i> Enter Final Score
+              </button>
+            </div>
+            
+            <div style="margin-top: 12px;">
+              <button class="btn btn-primary" style="width: 100%; border: 3px solid var(--gold-accent);" id="btn-match-finalize-trigger" onclick="triggerFinalizeModal()">
+                <i data-lucide="check-circle-2"></i> Finalize Match Results
+              </button>
+            </div>
+
+            <!-- Next Match Preview Footer -->
+            <div id="next-match-footer" class="selected-court-banner" style="margin-top: 20px; flex-direction: column; align-items: flex-start; gap: 4px;">
+              <span class="meta-label">UPCOMING NEXT MATCH</span>
+              <span id="next-match-details" style="font-size: 13px; font-weight: 600; color: var(--text-dark);">
+                Loading schedule...
+              </span>
+            </div>
+
+          </div>
+
+          <!-- ======================================== -->
+          <!-- B. TAB: MATCHES LIST -->
+          <!-- ======================================== -->
+          <div id="matches-panel" class="tab-panel">
+            <div class="matches-filter-bar">
+              <button class="match-filter-tab active" id="m-filter-all" onclick="filterMatches('all')">All Rounds</button>
+              <button class="match-filter-tab" id="m-filter-pending" onclick="filterMatches('pending')">Active/Upcoming</button>
+              <button class="match-filter-tab" id="m-filter-completed" onclick="filterMatches('completed')">Completed</button>
+            </div>
+            
+            <div id="matches-empty-state" class="hidden" style="text-align: center; padding: 40px var(--text-muted);">
+              <i data-lucide="calendar-search" style="width: 48px; height: 48px; margin: 0 auto 12px; opacity: 0.3;"></i>
+              <p>No matches matching your filter criteria.</p>
+            </div>
+            
+            <div class="matches-list" id="matches-list-container">
+              <!-- Loaded dynamically -->
+            </div>
+          </div>
+
+          <!-- ======================================== -->
+          <!-- C. TAB: LIVE LEADERBOARD -->
+          <!-- ======================================== -->
+          <div id="leaderboard-panel" class="tab-panel">
+            <div class="leaderboard-toolbar">
+              <h3 class="lead-title">Individual Standings</h3>
+              <button id="btn-toggle-lead-view" class="btn-toggle-lead" onclick="toggleLeaderboardDetails()">
+                Show Detailed Stats
+              </button>
+            </div>
+            
+            <div id="leaderboard-empty-state" style="text-align: center; padding: 40px var(--text-muted);">
+              <i data-lucide="trophy" style="width: 48px; height: 48px; margin: 0 auto 12px; color: var(--gold-accent); opacity: 0.3;"></i>
+              <p>Leaderboard calculations will appear dynamically once the first match is finalized.</p>
+            </div>
+            
+            <div class="leaderboard-list" id="leaderboard-list-container">
+              <!-- Loaded dynamically -->
+            </div>
+          </div>
+
+          <!-- ======================================== -->
+          <!-- D. TAB: TOURNAMENT RULES -->
+          <!-- ======================================== -->
+          <div id="rules-panel" class="tab-panel">
+            <div class="rules-container">
+              
+              <div class="rules-card">
+                <h3>The Social Circle Format</h3>
+                <p>A fun, mixed doubles pickleball social. Designed to be highly structured, engaging, and friendly.</p>
+                <ul>
+                  <li><strong>Mixed Doubles:</strong> Teams play mixed setups.</li>
+                  <li><strong>4 Courts:</strong> 4 separate matches run concurrently on 4 courts.</li>
+                  <li><strong>20 Rounds:</strong> Players rotate schedules across 20 rounds of play.</li>
+                </ul>
+              </div>
+              
+              <div class="rules-card">
+                <h3>Scoring Protocols</h3>
+                <p>The event is run with <strong>Rally Scoring</strong> which speeds up game progression:</p>
+                <ul>
+                  <li><strong>Rally Scoring:</strong> Every single rally awards 1 point, regardless of which team served.</li>
+                  <li><strong>Target:</strong> First team to reach <strong>15 points</strong> wins.</li>
+                  <li><strong>No Win By 2:</strong> There is a "Win by 1" rule. First to 15 is crowned winner (e.g. score of 15–14 is final).</li>
+                </ul>
+              </div>
+
+              <div class="rules-card">
+                <h3>TT Service Rotation Rule</h3>
+                <p>The serving side rotates predictably every 2 total points scored, no matter who wins the points:</p>
+                <ul>
+                  <li>Team A serves for the first 2 total points (Scores: 0-0, 1-0, 0-1, etc.).</li>
+                  <li>Team B serves for the next 2 points.</li>
+                  <li>The rotation alternates blocks of 2 serves continuously (A, A, B, B, A, A, B, B).</li>
+                  <li>Calculated as: <code>Math.floor((Score A + Score B) / 2) % 2</code>.</li>
+                </ul>
+              </div>
+
+              <div class="rules-card">
+                <h3>Time Limit Termination</h3>
+                <p>Rounds are limited to an 8-minute window:</p>
+                <ul>
+                  <li>An optional 8-minute countdown timer runs on the referee panel.</li>
+                  <li>Upon timer expiry ("TIME UP"), referees finalize the ongoing rally.</li>
+                  <li>If a team is leading, the referee can finalize the current score directly.</li>
+                  <li>If tied at timer expiry, players must perform <strong>one deciding rally</strong> to resolve the tie. No tie scores are allowed.</li>
+                </ul>
+              </div>
+              
+            </div>
+          </div>
+
+          <!-- ======================================== -->
+          <!-- E. TAB: ADMINISTRATOR PORTAL -->
+          <!-- ======================================== -->
+          <div id="admin-panel" class="tab-panel">
+            <div class="admin-grid">
+              
+              <div class="admin-summary-cards">
+                <div class="admin-stat-card">
+                  <div class="admin-stat-num" id="admin-stat-completed">0</div>
+                  <div class="admin-stat-label">Finalized Matches</div>
+                </div>
+                <div class="admin-stat-card">
+                  <div class="admin-stat-num" id="admin-stat-active">0</div>
+                  <div class="admin-stat-label">Active Courts</div>
+                </div>
+              </div>
+              
+              <div class="admin-actions-bar">
+                <button class="btn-admin-action" onclick="downloadMatchesCSV()">
+                  <i data-lucide="download" style="width: 14px; height: 14px;"></i> Matches CSV
+                </button>
+                <button class="btn-admin-action" onclick="downloadLeaderboardCSV()">
+                  <i data-lucide="download" style="width: 14px; height: 14px;"></i> Leaderboard CSV
+                </button>
+                <button class="btn-admin-action" style="color: var(--danger); border-color: rgba(220, 38, 38, 0.3);" onclick="triggerTournamentReset()">
+                  <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> Reset Tournament
+                </button>
+              </div>
+              
+              <h4 style="margin-top: 12px; color: var(--primary-green);">All Matches Database Manager</h4>
+              <div class="admin-table-container">
+                <table class="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Court</th>
+                      <th>Rnd</th>
+                      <th>Team A (Score)</th>
+                      <th>Team B (Score)</th>
+                      <th>Status</th>
+                      <th>Finalized By</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="admin-matches-tbody">
+                    <!-- Loaded dynamically -->
+                  </tbody>
+                </table>
+              </div>
+              
+            </div>
+          </div>
+
+        </div>
+
+        <!-- --- FLOATING OFFLINE WARNING HEADER --- -->
+        <div id="offline-overlay" class="hidden">
+          <i data-lucide="wifi-off" style="width: 24px; height: 24px;"></i>
+          <div>
+            <div style="font-weight: 700; font-size: 14px;">Device Offline</div>
+            <div style="font-size: 11px;">Scores cached locally. Match finalization is temporarily disabled.</div>
+          </div>
+        </div>
+
+        <!-- Tab Navigation (Mobile footer) -->
+        <nav class="tab-nav">
+          <button class="tab-btn active" id="tab-btn-score" onclick="switchTab('score')">
+            <i data-lucide="hash"></i>
+            <span>Score</span>
+          </button>
+          <button class="tab-btn" id="tab-btn-matches" onclick="switchTab('matches')">
+            <i data-lucide="calendar"></i>
+            <span>Matches</span>
+          </button>
+          <button class="tab-btn" id="tab-btn-leaderboard" onclick="switchTab('leaderboard')">
+            <i data-lucide="trophy"></i>
+            <span>Standings</span>
+          </button>
+          <button class="tab-btn" id="tab-btn-rules" onclick="switchTab('rules')">
+            <i data-lucide="book-open"></i>
+            <span>Rules</span>
+          </button>
+          <button class="tab-btn hidden" id="tab-btn-admin" onclick="switchTab('admin')">
+            <i data-lucide="shield"></i>
+            <span>Admin</span>
+          </button>
+        </nav>
+
+      </div>
+
+    </div>
+
+    <!-- ============================================ -->
+    <!-- 3. MODALS AND OVERLAYS -->
+    <!-- ============================================ -->
+
+    <!-- Manual Quick Score Bottom Sheet -->
+    <div id="quick-score-overlay" class="bottom-sheet-overlay" onclick="closeQuickScoreSheet()">
+      <div class="bottom-sheet" onclick="event.stopPropagation()">
+        <div class="bottom-sheet-header">
+          <h3 class="bottom-sheet-title">Manual Score Correction</h3>
+          <button style="background: none; border: none; cursor: pointer;" onclick="closeQuickScoreSheet()">
+            <i data-lucide="x" style="color: var(--text-muted);"></i>
+          </button>
+        </div>
+        
+        <p style="font-size: 13px; color: var(--text-muted); text-align: center;">
+          Enter the full finished score directly below. Normal races are to 15 (Win by 1). 
+        </p>
+        
+        <div class="quick-score-inputs">
+          <div class="score-input-box">
+            <span class="team-badge a">Team A</span>
+            <input type="number" id="quick-score-a" class="score-input-field" min="0" max="30" value="0" />
+          </div>
+          
+          <span class="score-input-vs">vs</span>
+          
+          <div class="score-input-box">
+            <span class="team-badge b">Team B</span>
+            <input type="number" id="quick-score-b" class="score-input-field" min="0" max="30" value="0" />
+          </div>
+        </div>
+        
+        <div class="form-group" style="margin-top: 10px;">
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
+            <input type="checkbox" id="quick-score-time-limit" onchange="toggleQuickScoreRuleTip()" />
+            <span>Time-Limit Interrupted Result (Ended below 15 points)</span>
+          </label>
+        </div>
+        
+        <div id="quick-score-validation-error" style="color: var(--danger); font-size: 12px; font-weight: 600; text-align: center;" class="hidden">
+          Validation Error Placeholder
+        </div>
+
+        <button class="btn btn-primary" style="width: 100%;" onclick="saveQuickScores()">
+          <i data-lucide="save"></i> Apply Score Override
+        </button>
+      </div>
+    </div>
+
+    <!-- Finalize Confirmation Modal -->
+    <div id="finalize-modal-overlay" class="modal-overlay">
+      <div class="modal">
+        <h3 class="modal-title">Finalize Official Match?</h3>
+        
+        <div class="modal-body">
+          <p style="font-size: 13px; margin-bottom: 12px; color: var(--text-muted);">
+            Once submitted, scores are logged permanently. Referees cannot reopen finalized matches.
+          </p>
+          
+          <div style="background-color: var(--bg-cream); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; font-weight: 600; text-align: center;">
+            <div id="finalize-modal-teams">Team A vs Team B</div>
+            <div id="finalize-modal-score" style="font-family: var(--font-display); font-size: 28px; color: var(--primary-green); margin: 6px 0;">0 – 0</div>
+            <div id="finalize-modal-reason" style="font-size: 11px; color: var(--gold-accent); text-transform: uppercase; letter-spacing: 0.05em;">Target Score Achieved</div>
+          </div>
+        </div>
+        
+        <div class="modal-actions">
+          <button class="btn btn-primary" onclick="submitFinalization()">
+            <i data-lucide="check-square"></i> Yes, Finalize Official Result
+          </button>
+          <button class="btn btn-outline" onclick="closeFinalizeModal()">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Admin Password / Passcode Modal -->
+    <div id="admin-modal-overlay" class="modal-overlay">
+      <div class="modal">
+        <h3 class="modal-title">Admin Gatekeeper</h3>
+        <p style="font-size: 13px; text-align: center; color: var(--text-muted);">
+          Please enter the administrator access code to manage court fixtures and controls.
+        </p>
+        
+        <div class="form-group">
+          <input 
+            type="password" 
+            id="admin-passcode-input" 
+            class="form-input" 
+            placeholder="••••"
+            inputmode="numeric" 
+            maxlength="4"
+          />
+        </div>
+        
+        <div id="admin-passcode-error" style="color: var(--danger); font-size: 12px; font-weight: 600; text-align: center;" class="hidden">
+          Incorrect passcode. Access Denied.
+        </div>
+        
+        <div class="modal-actions">
+          <button class="btn btn-primary" onclick="validateAdminPasscode()">
+            Unlock Admin Panel
+          </button>
+          <button class="btn btn-outline" onclick="closeAdminGate()">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================ -->
+    <!-- 4. FIREBASE MODULES AND APPS -->
+    <!-- ============================================ -->
+    
+    <!-- Firebase Compat Web SDK (CDN) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+
+    <!-- App Fixture Data -->
+    <script src="./fixtures.js"></script>
+    
+    <!-- Configuration file -->
+    <script src="./firebase-config.js"></script>
+    
+    <!-- Core Application Logic -->
+    <script src="./app.js"></script>
+
+    <!-- Register service worker -->
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("./service-worker.js")
+            .then((reg) => console.log("Service Worker active successfully:", reg.scope))
+            .catch((err) => console.error("Service Worker registration failed:", err));
+        });
+      }
+    </script>
+  </body>
+</html>

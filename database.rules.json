@@ -1,0 +1,20 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "eventSettings": {
+      ".read": "true",
+      ".write": "auth != null && auth.uid === 'ADMIN_UID'"
+    },
+    "courtUsers": {
+      ".read": "auth != null",
+      ".write": "auth != null && auth.uid === 'ADMIN_UID'"
+    },
+    "matches": {
+      ".read": "true",
+      "$matchId": {
+        ".write": "auth != null && (auth.uid === 'ADMIN_UID' || (root.child('courtUsers').child(auth.uid).exists() && root.child('courtUsers').child(auth.uid).val() == (data.exists() ? data.child('court').val() : newData.child('court').val()) && (!data.exists() || data.child('status').val() != 'finalized') && (!newData.exists() || !newData.hasChild('court') || data.child('court').val() == newData.child('court').val())))"
+      }
+    }
+  }
+}
