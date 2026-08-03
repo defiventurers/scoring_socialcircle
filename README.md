@@ -102,7 +102,7 @@ The PostgreSQL backend now initializes a reusable tournament-management schema i
 
 ### Data-driven tables
 
-The backend creates normalized tables for players, tournaments, tournament players, courts, rounds, matches, match players, scores, leaderboards, statistics, settings, and sessions. Player labels are permanent and support the requested default men (`1`-`20`) and women (`A`-`T`) labels. Display names remain optional so clients can render either the permanent label alone or `label • display name`.
+The backend creates normalized tables for players, tournaments, tournament players, courts, rounds, matches, match players, scores, leaderboards, statistics, settings, and sessions. Player labels are permanent and support the requested default men (`1`-`20`) and women (`A`-`T`) labels. Display names remain optional so clients can render either the permanent label alone or `label • display name`. The bundled Mixed Americano fixtures now use only permanent labels; human display names belong in PostgreSQL, not source fixtures.
 
 ### Rule-set registry
 
@@ -121,6 +121,10 @@ Registered format keys are:
 - `double-elimination`
 - `swiss`
 - `custom`
+
+### Tournament setup screen
+
+The first login screen includes a tournament setup panel with format, player-count, and court-count controls so administrators see the configurable model before selecting a court or admin access.
 
 ### REST API surface
 
