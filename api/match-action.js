@@ -65,6 +65,7 @@ export default async function handler(req, res) {
           finalized_at = NULL,
           finalized_by = NULL,
           finish_reason = NULL,
+          winner = NULL,
           version = version + 1,
           updated_at = NOW()
         WHERE event_id = ${EVENT_ID}
@@ -235,6 +236,7 @@ export default async function handler(req, res) {
             finalized_at = NOW(),
             finalized_by = ${finalizedBy},
             finish_reason = ${finishReason},
+            winner = CASE WHEN team_a_score > team_b_score THEN 'A' ELSE 'B' END,
             version = version + 1,
             updated_at = NOW()
           WHERE event_id = ${EVENT_ID}
@@ -261,6 +263,7 @@ export default async function handler(req, res) {
             status = 'active',
             finalized_at = NULL,
             finalized_by = NULL,
+            winner = NULL,
             version = version + 1,
             updated_at = NOW()
           WHERE event_id = ${EVENT_ID}
@@ -289,6 +292,7 @@ export default async function handler(req, res) {
             finalized_at = NULL,
             finalized_by = NULL,
             finish_reason = NULL,
+            winner = NULL,
             version = version + 1,
             updated_at = NOW()
           WHERE event_id = ${EVENT_ID}
