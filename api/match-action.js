@@ -65,6 +65,7 @@ export default async function handler(req, res) {
           finalized_at = NULL,
           finalized_by = NULL,
           finish_reason = NULL,
+          winner = NULL,
           version = version + 1,
           updated_at = NOW()
         WHERE event_id = ${EVENT_ID}

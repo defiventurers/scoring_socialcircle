@@ -157,7 +157,7 @@ async function initializeDatabase() {
   `;
 
   await sql`INSERT INTO courts (tournament_id, court_number) SELECT ${EVENT_ID}, generate_series(1, ${DEFAULT_TOURNAMENT.numberOfCourts}) ON CONFLICT DO NOTHING`;
-  await sql`INSERT INTO rounds (tournament_id, round_number, scheduled_time) SELECT ${EVENT_ID}, round_number, MIN(scheduled_time) FROM jsonb_to_recordset(${JSON.stringify(FIXTURES)}::JSONB) AS f(id TEXT, event_id TEXT, court INTEGER, round_number INTEGER, scheduled_time TEXT, team_a JSONB, team_b JSONB) GROUP BY round_number ON CONFLICT DO NOTHING`;
+  await sql`INSERT INTO rounds (tournament_id, round_number, scheduled_time) SELECT ${EVENT_ID}, round, MIN(scheduled_time) FROM jsonb_to_recordset(${JSON.stringify(FIXTURES)}::JSONB) AS f(id TEXT, event_id TEXT, court INTEGER, round INTEGER, scheduled_time TEXT, team_a JSONB, team_b JSONB) GROUP BY round ON CONFLICT DO NOTHING`;
 
   await sql`
     INSERT INTO event_settings (event_id, initialized)
