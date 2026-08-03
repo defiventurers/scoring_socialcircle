@@ -6,21 +6,21 @@ function isIntegerScore(value) {
   return Number.isInteger(value) && value >= 0 && value <= 15;
 }
 
-async function sendConflict(res, matchId, message = 'The match changed on another device.') {
-  const latestMatch = await getMatch(matchId);
+async function sendConflict(res, matchId, tournamentId, message = 'The match changed on another device.') {
+  const latestMatch = await getMatch(matchId, tournamentId);
   return sendJson(res, 409, {
     error: message,
     match: latestMatch,
   });
 }
 
-async function runVersionedUpdate(sql, queryPromise, matchId, res) {
+async function runVersionedUpdate(sql, queryPromise, matchId, tournamentId, res) {
   const rows = await queryPromise;
   if (!rows[0]) {
-    await sendConflict(res, matchId);
+    await sendConflict(res, matchId, tournamentId);
     return null;
   }
-  return getMatch(matchId);
+  return getMatch(matchId, tournamentId);
 }
 
 export default async function handler(req, res) {
@@ -44,6 +44,7 @@ export default async function handler(req, res) {
   if (!body) return sendJson(res, 400, { error: 'Invalid JSON body.' });
 
   const action = String(body.action || '');
+  const tournamentId = String(body.tournamentId || EVENT_ID);
 
   try {
     await ensureDatabase();
@@ -68,18 +69,18 @@ export default async function handler(req, res) {
           winner = NULL,
           version = version + 1,
           updated_at = NOW()
-        WHERE event_id = ${EVENT_ID}
+        WHERE tournament_id = ${tournamentId}
       `;
 
-      return sendJson(res, 200, { matches: await listMatches() });
+      return sendJson(res, 200, { matches: await listMatches(tournamentId) });
     }
 
     const matchId = String(body.matchId || '');
-    if (!/^court[1-4]_round(?:[1-9]|1\d|20)$/.test(matchId)) {
+    if (!/^(?:[a-z0-9-]+_)?court\d+_round\d+$/.test(matchId)) {
       return sendJson(res, 400, { error: 'Invalid match ID.' });
     }
 
-    const match = await getMatch(matchId);
+    const match = await getMatch(matchId, tournamentId);
     if (!match) return sendJson(res, 404, { error: 'Match not found.' });
 
     if (!canModifyCourt(session, match.court)) {
@@ -88,7 +89,7 @@ export default async function handler(req, res) {
 
     const expectedVersion = Number(body.expectedVersion);
     if (!Number.isInteger(expectedVersion) || expectedVersion !== Number(match.version)) {
-      return sendConflict(res, matchId);
+      return sendConflict(res, matchId, tournamentId);
     }
 
     let updatedMatch = null;
@@ -120,7 +121,7 @@ export default async function handler(req, res) {
             started_at = COALESCE(started_at, NOW()),
             version = version + 1,
             updated_at = NOW()
-          WHERE event_id = ${EVENT_ID}
+          WHERE tournament_id = ${tournamentId}
             AND id = ${matchId}
             AND version = ${expectedVersion}
             AND status <> 'finalized'
@@ -129,6 +130,7 @@ export default async function handler(req, res) {
           RETURNING id
         `,
         matchId,
+        tournamentId,
         res,
       );
     } else if (action === 'undo') {
@@ -156,13 +158,14 @@ export default async function handler(req, res) {
             started_at = CASE WHEN ${returnsToScheduled} THEN NULL ELSE started_at END,
             version = version + 1,
             updated_at = NOW()
-          WHERE event_id = ${EVENT_ID}
+          WHERE tournament_id = ${tournamentId}
             AND id = ${matchId}
             AND version = ${expectedVersion}
             AND status <> 'finalized'
           RETURNING id
         `,
         matchId,
+        tournamentId,
         res,
       );
     } else if (action === 'manualScore') {
@@ -201,13 +204,14 @@ export default async function handler(req, res) {
             finish_reason = ${isTimeLimit ? 'time-limit' : 'target-score'},
             version = version + 1,
             updated_at = NOW()
-          WHERE event_id = ${EVENT_ID}
+          WHERE tournament_id = ${tournamentId}
             AND id = ${matchId}
             AND version = ${expectedVersion}
             AND status <> 'finalized'
           RETURNING id
         `,
         matchId,
+        tournamentId,
         res,
       );
     } else if (action === 'finalize') {
@@ -239,7 +243,7 @@ export default async function handler(req, res) {
             winner = CASE WHEN team_a_score > team_b_score THEN 'A' ELSE 'B' END,
             version = version + 1,
             updated_at = NOW()
-          WHERE event_id = ${EVENT_ID}
+          WHERE tournament_id = ${tournamentId}
             AND id = ${matchId}
             AND version = ${expectedVersion}
             AND status <> 'finalized'
@@ -248,6 +252,7 @@ export default async function handler(req, res) {
           RETURNING id
         `,
         matchId,
+        tournamentId,
         res,
       );
     } else if (action === 'reopen') {
@@ -266,12 +271,13 @@ export default async function handler(req, res) {
             winner = NULL,
             version = version + 1,
             updated_at = NOW()
-          WHERE event_id = ${EVENT_ID}
+          WHERE tournament_id = ${tournamentId}
             AND id = ${matchId}
             AND version = ${expectedVersion}
           RETURNING id
         `,
         matchId,
+        tournamentId,
         res,
       );
     } else if (action === 'reset') {
@@ -295,12 +301,13 @@ export default async function handler(req, res) {
             winner = NULL,
             version = version + 1,
             updated_at = NOW()
-          WHERE event_id = ${EVENT_ID}
+          WHERE tournament_id = ${tournamentId}
             AND id = ${matchId}
             AND version = ${expectedVersion}
           RETURNING id
         `,
         matchId,
+        tournamentId,
         res,
       );
     } else {

@@ -20,7 +20,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const matches = await listMatches();
+    const matches = await listMatches(req.query?.tournamentId);
     return sendJson(res, 200, {
       matches,
       serverTime: new Date().toISOString(),

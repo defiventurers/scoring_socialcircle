@@ -124,7 +124,7 @@ Registered format keys are:
 
 ### Tournament setup screen
 
-The first login screen includes a tournament setup panel with format, player-count, and court-count controls so administrators see the configurable model before selecting a court or admin access.
+The first login screen includes a tournament setup panel with format, player-count, and court-count controls so administrators see the configurable model before selecting a court or admin access. Creating or publishing an event is admin-only: `POST /api/tournaments` rejects non-admin sessions, generates tournament players, courts, rounds, and matches, and the court fixture APIs can load those records by `tournamentId`.
 
 ### REST API surface
 
