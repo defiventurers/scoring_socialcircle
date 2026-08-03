@@ -93,3 +93,51 @@ For each finalized match (e.g., Team A wins 15–11):
   2. **Wins** (highest first)
   3. **Point Difference** (Points For - Points Against, highest first)
   4. **Player Name** alphabetically.
+
+---
+
+## Tournament Platform Architecture
+
+The PostgreSQL backend now initializes a reusable tournament-management schema instead of relying on source-code-only fixtures. The original Social Circle Mixed Americano tournament is seeded as a published `mixed-americano` tournament for backward compatibility, while new tournaments can be created with any registered format.
+
+### Data-driven tables
+
+The backend creates normalized tables for players, tournaments, tournament players, courts, rounds, matches, match players, scores, leaderboards, statistics, settings, and sessions. Player labels are permanent and support the requested default men (`1`-`20`) and women (`A`-`T`) labels. Display names remain optional so clients can render either the permanent label alone or `label • display name`. The bundled Mixed Americano fixtures now use only permanent labels; human display names belong in PostgreSQL, not source fixtures.
+
+### Rule-set registry
+
+Tournament behavior is selected through a rule-set registry in `api/_lib/tournament-rules.js`. Formats register fixture-generation, rotation, court-assignment, scoring, ranking, and tiebreaker metadata by format key. The match engine stores generic match data and delegates leaderboard interpretation to the selected tournament rules.
+
+Registered format keys are:
+
+- `mixed-americano`
+- `americano`
+- `mexicano`
+- `round-robin`
+- `king-of-the-court`
+- `ladder-league`
+- `pool-play`
+- `single-elimination`
+- `double-elimination`
+- `swiss`
+- `custom`
+
+### Tournament setup screen
+
+The first login screen includes a tournament setup panel with format, player-count, and court-count controls so administrators see the configurable model before selecting a court or admin access. Creating or publishing an event is admin-only: `POST /api/tournaments` rejects non-admin sessions, generates tournament players, courts, rounds, and matches, and the court fixture APIs can load those records by `tournamentId`.
+
+### REST API surface
+
+The Vercel API now exposes these platform endpoints alongside the existing match scoring endpoints:
+
+- `GET /api/players`, `POST /api/players`
+- `GET /api/tournaments`, `POST /api/tournaments`
+- `GET /api/fixtures`
+- `GET /api/matches`
+- `POST /api/match-action`
+- `GET /api/leaderboard`
+- `GET /api/statistics`
+- `GET /api/settings`, `POST /api/settings`
+- `GET /api/courts`
+
+The existing `/api/matches` and `/api/match-action` response shapes are preserved so the current Mixed Americano scoring flow can continue to read and write scores without changing its match contract.

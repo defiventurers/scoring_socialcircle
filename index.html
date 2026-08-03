@@ -43,6 +43,48 @@
         <div class="login-content">
           <!-- Step 1: Select Court -->
           <div id="login-step-court">
+            <section class="tournament-setup-card" aria-labelledby="tournament-setup-title">
+              <div class="setup-eyebrow">Tournament Setup</div>
+              <h3 id="tournament-setup-title">Choose format and player count first</h3>
+              <p>These controls mirror the new database-driven tournament builder. The current published event defaults to Mixed Americano with permanent player labels.</p>
+
+              <div class="setup-grid">
+                <label class="setup-field" for="setup-format-select">
+                  <span>Format</span>
+                  <select id="setup-format-select" class="form-input">
+                    <option value="mixed-americano" selected>Mixed Americano</option>
+                    <option value="americano">Americano</option>
+                    <option value="mexicano">Mexicano</option>
+                    <option value="round-robin">Round Robin</option>
+                    <option value="king-of-the-court">King of the Court</option>
+                    <option value="ladder-league">Ladder League</option>
+                    <option value="pool-play">Pool Play</option>
+                    <option value="single-elimination">Single Elimination</option>
+                    <option value="double-elimination">Double Elimination</option>
+                    <option value="swiss">Swiss</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </label>
+
+                <label class="setup-field" for="setup-player-count">
+                  <span>Players</span>
+                  <input id="setup-player-count" class="form-input" type="number" min="4" max="40" step="4" value="40" />
+                </label>
+
+                <label class="setup-field" for="setup-court-count">
+                  <span>Courts</span>
+                  <input id="setup-court-count" class="form-input" type="number" min="1" max="12" value="4" />
+                </label>
+              </div>
+
+              <div class="setup-note">
+                Only an authenticated admin can create or publish an event. Court referees load the published event for their assigned court after login.
+              </div>
+              <button class="btn btn-primary setup-admin-btn" onclick="tryAdminLoginDirect()">
+                <i data-lucide="shield"></i> Admin Login to Create Event
+              </button>
+            </section>
+
             <h3 class="login-step-title">Select Your Assigned Court</h3>
             <div class="court-grid">
               <div class="court-card" onclick="selectCourt(1)">
