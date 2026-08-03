@@ -98,6 +98,33 @@ async function initializeDatabase() {
   await sql`CREATE TABLE IF NOT EXISTS leaderboards (tournament_id TEXT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE, player_id BIGINT REFERENCES players(id), rank INTEGER NOT NULL, stats JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (tournament_id, rank))`;
 
   await sql`
+    CREATE TABLE IF NOT EXISTS tournaments (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      format TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'archived')),
+      date DATE,
+      location TEXT,
+      number_of_courts INTEGER NOT NULL DEFAULT 1,
+      points_to_win INTEGER NOT NULL DEFAULT 15,
+      win_by INTEGER NOT NULL DEFAULT 1,
+      max_players INTEGER,
+      settings JSONB NOT NULL DEFAULT '{}'::JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await sql`CREATE TABLE IF NOT EXISTS event_settings (event_id TEXT PRIMARY KEY, initialized BOOLEAN NOT NULL DEFAULT FALSE, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
+  await sql`CREATE TABLE IF NOT EXISTS tournament_players (tournament_id TEXT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE, player_id BIGINT NOT NULL REFERENCES players(id) ON DELETE CASCADE, label TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', seed INTEGER, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (tournament_id, player_id))`;
+  await sql`CREATE TABLE IF NOT EXISTS courts (id BIGSERIAL PRIMARY KEY, tournament_id TEXT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE, court_number INTEGER NOT NULL, name TEXT, status TEXT NOT NULL DEFAULT 'active', UNIQUE (tournament_id, court_number))`;
+  await sql`CREATE TABLE IF NOT EXISTS rounds (id BIGSERIAL PRIMARY KEY, tournament_id TEXT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE, round_number INTEGER NOT NULL, scheduled_time TEXT, status TEXT NOT NULL DEFAULT 'scheduled', UNIQUE (tournament_id, round_number))`;
+  await sql`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
+  await sql`CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, data JSONB NOT NULL, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
+  await sql`CREATE TABLE IF NOT EXISTS statistics (player_id BIGINT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE, games_played INTEGER NOT NULL DEFAULT 0, wins INTEGER NOT NULL DEFAULT 0, losses INTEGER NOT NULL DEFAULT 0, draws INTEGER NOT NULL DEFAULT 0, points_scored INTEGER NOT NULL DEFAULT 0, points_conceded INTEGER NOT NULL DEFAULT 0, point_difference INTEGER NOT NULL DEFAULT 0, average_points NUMERIC NOT NULL DEFAULT 0, partner_history JSONB NOT NULL DEFAULT '{}'::JSONB, opponent_history JSONB NOT NULL DEFAULT '{}'::JSONB, court_history JSONB NOT NULL DEFAULT '{}'::JSONB, attendance JSONB NOT NULL DEFAULT '[]'::JSONB, streaks JSONB NOT NULL DEFAULT '{}'::JSONB, elo_rating NUMERIC NOT NULL DEFAULT 1000, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
+  await sql`CREATE TABLE IF NOT EXISTS leaderboards (tournament_id TEXT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE, player_id BIGINT REFERENCES players(id), rank INTEGER NOT NULL, stats JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (tournament_id, rank))`;
+
+  await sql`
     CREATE TABLE IF NOT EXISTS matches (
       id TEXT PRIMARY KEY,
       event_id TEXT NOT NULL,
@@ -218,6 +245,19 @@ async function initializeDatabase() {
     FROM jsonb_to_recordset(${matchPlayersPayload}::JSONB) AS mp(match_id TEXT, team TEXT, position INTEGER, label TEXT, display_name TEXT)
     ON CONFLICT (match_id, team, position) DO UPDATE
     SET label = EXCLUDED.label, display_name = EXCLUDED.display_name
+  `;
+
+  const matchPlayersPayload = JSON.stringify(
+    FIXTURES.flatMap((fixture) => [
+      ...fixture.teamA.map((displayName, index) => ({ match_id: fixture.id, team: 'A', position: index + 1, label: displayName, display_name: displayName })),
+      ...fixture.teamB.map((displayName, index) => ({ match_id: fixture.id, team: 'B', position: index + 1, label: displayName, display_name: displayName })),
+    ]),
+  );
+  await sql`
+    INSERT INTO match_players (match_id, team, position, label, display_name)
+    SELECT match_id, team, position, label, display_name
+    FROM jsonb_to_recordset(${matchPlayersPayload}::JSONB) AS mp(match_id TEXT, team TEXT, position INTEGER, label TEXT, display_name TEXT)
+    ON CONFLICT DO NOTHING
   `;
 
   await sql`
