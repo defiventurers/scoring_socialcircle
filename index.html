@@ -411,6 +411,13 @@
                 <button class="btn-admin-action" style="color: var(--danger); border-color: rgba(220, 38, 38, 0.3);" onclick="triggerTournamentReset()">
                   <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> Reset Tournament
                 </button>
+                <button id="btn-end-event" class="btn-admin-action" style="color: var(--danger); border-color: var(--danger);" onclick="triggerEndEvent()">
+                  <i data-lucide="archive" style="width: 14px; height: 14px;"></i> End Event
+                </button>
+              </div>
+
+              <div id="admin-event-status" class="setup-note" style="margin: 12px 0;">
+                Loading current event status…
               </div>
               
               <h4 style="margin-top: 12px; color: var(--primary-green);">All Matches Database Manager</h4>

@@ -10,6 +10,7 @@ window.addEventListener("DOMContentLoaded", () => {
   let syncTimer = null;
   let syncInFlight = false;
   let writeInFlight = false;
+  let activeTournament = null;
 
   const originalLoginSuccess = loginSuccess;
   const originalRenderActiveScoreboard = renderActiveScoreboard;
@@ -115,8 +116,29 @@ window.addEventListener("DOMContentLoaded", () => {
     onMatchesDataChanged(matchesCache);
   }
 
+  function renderCurrentEventStatus() {
+    const status = document.getElementById("admin-event-status");
+    const endButton = document.getElementById("btn-end-event");
+    if (status) {
+      status.textContent = activeTournament
+        ? `Current event: ${activeTournament.name} • ${activeTournament.status}`
+        : "No active event. You can now create and publish the next event.";
+    }
+    if (endButton) {
+      endButton.disabled = !activeTournament || activeTournament.status !== "published" || writeInFlight;
+    }
+  }
+
+  async function loadActiveTournament() {
+    const payload = await requestJson("/api/tournaments");
+    activeTournament = (payload.tournaments || []).find((tournament) => tournament.status === "published") || null;
+    renderCurrentEventStatus();
+    return activeTournament;
+  }
+
   function applyWriteAvailability() {
-    const blocked = !isOnline || writeInFlight;
+    const eventReadOnly = !activeTournament || activeTournament.status !== "published";
+    const blocked = !isOnline || writeInFlight || eventReadOnly;
     const isFinalized = currentMatch?.status === "finalized";
     const scoreButtons = [
       document.getElementById("btn-add-a"),
@@ -187,11 +209,24 @@ window.addEventListener("DOMContentLoaded", () => {
     if (initial) setConnectionLabel("CONNECTING", "saving");
 
     try {
-      const payload = await requestJson("/api/matches");
+      if (initial || !activeTournament) await loadActiveTournament();
+      if (!activeTournament) {
+        applyServerMatches([]);
+        isOnline = true;
+        setOnlineStatus(true);
+        setDatabaseBadge("Shared Postgres • No active event");
+        return true;
+      }
+
+      const payload = await requestJson(`/api/matches?tournamentId=${encodeURIComponent(activeTournament.id)}`);
+      activeTournament = payload.tournament || activeTournament;
       applyServerMatches(payload.matches);
       isOnline = true;
       setOnlineStatus(true);
-      setDatabaseBadge("Shared Postgres • Live Sync");
+      setDatabaseBadge(activeTournament.status === "published"
+        ? "Shared Postgres • Live Sync"
+        : "Shared Postgres • Event ended");
+      renderCurrentEventStatus();
       return true;
     } catch (error) {
       if (error.status === 401) {
@@ -249,6 +284,7 @@ window.addEventListener("DOMContentLoaded", () => {
         method: "POST",
         body: JSON.stringify({
           action,
+          tournamentId: activeTournament?.id,
           ...(action === "resetAll"
             ? {}
             : {
@@ -526,6 +562,44 @@ window.addEventListener("DOMContentLoaded", () => {
       alert("All shared tournament scores were reset.");
     } catch (error) {
       alert(error.message);
+    }
+  };
+
+  triggerEndEvent = async function endSharedEvent() {
+    if (!activeTournament || activeTournament.status !== "published") {
+      alert("There is no active event to end.");
+      return;
+    }
+    if (writeInFlight) return;
+
+    const unfinished = Object.values(matchesCache).filter((match) => match.status !== "finalized").length;
+    const warning = unfinished > 0
+      ? `${unfinished} matches are not finalized. Ending the event will make every match read-only.`
+      : "All matches are finalized.";
+    if (!confirm(`End “${activeTournament.name}”?\n\n${warning}\n\nScores and reports will be preserved.`)) return;
+    if (!confirm("Final confirmation: archive this event and allow the next event to be published?")) return;
+
+    writeInFlight = true;
+    setSavingState(true);
+    renderCurrentEventStatus();
+    try {
+      const payload = await requestJson("/api/tournaments", {
+        method: "PATCH",
+        body: JSON.stringify({ action: "end", tournamentId: activeTournament.id }),
+      });
+      activeTournament = null;
+      currentMatch = null;
+      pauseTimer();
+      applyServerMatches([]);
+      setSavingState(false);
+      setDatabaseBadge("Shared Postgres • Event archived");
+      alert(`“${payload.tournament.name}” has ended. Scores remain archived and the next event can now be created.`);
+    } catch (error) {
+      setSavingState(false, true);
+      alert(error.message || "The event could not be ended.");
+    } finally {
+      writeInFlight = false;
+      renderCurrentEventStatus();
     }
   };
 

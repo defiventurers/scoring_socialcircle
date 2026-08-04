@@ -1,4 +1,4 @@
-const CACHE_NAME = "pickleball-social-v3-postgres";
+const CACHE_NAME = "pickleball-social-v4-end-event";
 const ASSETS = [
   "./",
   "./index.html",

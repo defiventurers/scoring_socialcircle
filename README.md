@@ -132,6 +132,7 @@ The Vercel API now exposes these platform endpoints alongside the existing match
 
 - `GET /api/players`, `POST /api/players`
 - `GET /api/tournaments`, `POST /api/tournaments`
+- `PATCH /api/tournaments` (`action: "end"`) archives the current event (admin only)
 - `GET /api/fixtures`
 - `GET /api/matches`
 - `POST /api/match-action`
@@ -141,3 +142,5 @@ The Vercel API now exposes these platform endpoints alongside the existing match
 - `GET /api/courts`
 
 The existing `/api/matches` and `/api/match-action` response shapes are preserved so the current Mixed Americano scoring flow can continue to read and write scores without changing its match contract.
+
+Administrators can end the published event from the Admin tab. Ending is deliberately different from resetting: it preserves every score and report, archives the tournament, makes its matches read-only on the server, and frees the platform to publish the next event. Publishing a new tournament also archives any previously published tournament so only one event can be live at a time.

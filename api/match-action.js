@@ -1,5 +1,5 @@
 import { canModifyCourt, getSessionFromRequest } from './_lib/auth.js';
-import { ensureDatabase, EVENT_ID, getMatch, getSql, listMatches } from './_lib/db.js';
+import { ensureDatabase, EVENT_ID, getMatch, getSql, getTournament, listMatches } from './_lib/db.js';
 import { methodNotAllowed, parseJsonBody, sendJson } from './_lib/http.js';
 
 function isIntegerScore(value) {
@@ -45,10 +45,20 @@ export default async function handler(req, res) {
 
   const action = String(body.action || '');
   const tournamentId = String(body.tournamentId || EVENT_ID);
+  if (!/^[a-z0-9]+(?:[a-z0-9_-]*[a-z0-9])?$/.test(tournamentId)) {
+    return sendJson(res, 400, { error: 'Invalid tournament ID.' });
+  }
 
   try {
     await ensureDatabase();
     const sql = getSql();
+    const tournament = await getTournament(tournamentId);
+    if (!tournament) {
+      return sendJson(res, 404, { error: 'Tournament not found.' });
+    }
+    if (tournament.status !== 'published') {
+      return sendJson(res, 409, { error: 'This event has ended. Its matches are read-only.' });
+    }
 
     if (action === 'resetAll') {
       if (session.role !== 'admin') {

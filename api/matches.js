@@ -1,5 +1,5 @@
 import { getSessionFromRequest } from './_lib/auth.js';
-import { listMatches } from './_lib/db.js';
+import { getPublishedTournament, getTournament, listMatches } from './_lib/db.js';
 import { methodNotAllowed, sendJson } from './_lib/http.js';
 
 export default async function handler(req, res) {
@@ -20,9 +20,15 @@ export default async function handler(req, res) {
   }
 
   try {
-    const matches = await listMatches(req.query?.tournamentId);
+    const tournamentId = req.query?.tournamentId;
+    const tournament = tournamentId
+      ? await getTournament(tournamentId)
+      : await getPublishedTournament();
+    if (!tournament) return sendJson(res, 404, { error: 'Tournament not found.' });
+    const matches = await listMatches(tournament.id);
     return sendJson(res, 200, {
       matches,
+      tournament,
       serverTime: new Date().toISOString(),
     });
   } catch (error) {

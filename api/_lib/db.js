@@ -133,6 +133,8 @@ async function initializeDatabase() {
   await sql`CREATE TABLE IF NOT EXISTS statistics (player_id BIGINT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE, games_played INTEGER NOT NULL DEFAULT 0, wins INTEGER NOT NULL DEFAULT 0, losses INTEGER NOT NULL DEFAULT 0, draws INTEGER NOT NULL DEFAULT 0, points_scored INTEGER NOT NULL DEFAULT 0, points_conceded INTEGER NOT NULL DEFAULT 0, point_difference INTEGER NOT NULL DEFAULT 0, average_points NUMERIC NOT NULL DEFAULT 0, partner_history JSONB NOT NULL DEFAULT '{}'::JSONB, opponent_history JSONB NOT NULL DEFAULT '{}'::JSONB, court_history JSONB NOT NULL DEFAULT '{}'::JSONB, attendance JSONB NOT NULL DEFAULT '[]'::JSONB, streaks JSONB NOT NULL DEFAULT '{}'::JSONB, elo_rating NUMERIC NOT NULL DEFAULT 1000, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
   await sql`CREATE TABLE IF NOT EXISTS leaderboards (tournament_id TEXT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE, player_id BIGINT REFERENCES players(id), rank INTEGER NOT NULL, stats JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (tournament_id, rank))`;
 
+  await sql`ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ`;
+  await sql`ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS ended_by TEXT`;
   await sql`
     CREATE TABLE IF NOT EXISTS matches (
       id TEXT PRIMARY KEY,
@@ -340,12 +342,30 @@ export async function listPlayers() {
 export async function listTournaments() {
   await ensureDatabase();
   const sql = getSql();
-  return sql`SELECT id, name, format, status, date, location, number_of_courts AS "numberOfCourts", points_to_win AS "pointsToWin", win_by AS "winBy", max_players AS "maxPlayers", settings, created_at AS "createdAt" FROM tournaments ORDER BY created_at DESC`;
+  return sql`SELECT id, name, format, status, date, location, number_of_courts AS "numberOfCourts", points_to_win AS "pointsToWin", win_by AS "winBy", max_players AS "maxPlayers", settings, created_at AS "createdAt", updated_at AS "updatedAt", ended_at AS "endedAt", ended_by AS "endedBy" FROM tournaments ORDER BY created_at DESC`;
 }
 
 export async function getTournament(tournamentId = EVENT_ID) {
   const tournaments = await listTournaments();
-  return tournaments.find((t) => t.id === tournamentId) || tournaments[0] || null;
+  return tournaments.find((t) => t.id === tournamentId) || null;
+}
+
+export async function getPublishedTournament() {
+  const tournaments = await listTournaments();
+  return tournaments.find((t) => t.status === 'published') || null;
+}
+
+export async function endTournament(tournamentId) {
+  await ensureDatabase();
+  const sql = getSql();
+  const rows = await sql`
+    UPDATE tournaments
+    SET status = 'archived', ended_at = NOW(), ended_by = 'admin', updated_at = NOW()
+    WHERE id = ${tournamentId} AND status = 'published'
+    RETURNING id
+  `;
+  if (!rows[0]) return null;
+  return getTournament(tournamentId);
 }
 
 export async function listCourts(tournamentId = EVENT_ID) {
@@ -433,6 +453,16 @@ export async function createTournamentWithFixtures(input) {
         settings = EXCLUDED.settings,
         updated_at = NOW()
     `;
+
+  // There can only be one live event. Preserve completed events and their
+  // scores, but archive them when a different event is published.
+  if ((input.status || 'draft') === 'published') {
+    await sql`
+      UPDATE tournaments
+      SET status = 'archived', ended_at = NOW(), ended_by = 'admin', updated_at = NOW()
+      WHERE id <> ${id} AND status = 'published'
+    `;
+  }
 
   const tournamentPlayersPayload = JSON.stringify(labels.map((label, index) => ({ label, seed: index + 1 })));
   await sql`

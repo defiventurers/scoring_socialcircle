@@ -595,12 +595,21 @@ function getFirstMatch(courtNum) {
 // Render Core Scoreboard GUI
 function renderActiveScoreboard() {
   if (!currentMatch) {
-    document.getElementById("score-panel").innerHTML = `
-      <div style="text-align:center; padding:40px var(--text-muted);">
-        <i data-lucide="info" style="width:48px; height:48px; margin:0 auto; color:var(--primary-green);"></i>
-        <p style="margin-top:12px;">No matches scheduled on this court.</p>
-      </div>
-    `;
+    document.getElementById("referee-round-title").textContent = "NO ACTIVE EVENT";
+    document.getElementById("score-round-num").textContent = "-";
+    document.getElementById("score-time-val").textContent = "-";
+    document.getElementById("score-status-val").textContent = "NO MATCH";
+    document.getElementById("player-a1").textContent = "Waiting for";
+    document.getElementById("player-a2").textContent = "next event";
+    document.getElementById("player-b1").textContent = "Waiting for";
+    document.getElementById("player-b2").textContent = "next event";
+    document.getElementById("score-val-a").textContent = "0";
+    document.getElementById("score-val-b").textContent = "0";
+    document.getElementById("btn-add-a").setAttribute("disabled", "true");
+    document.getElementById("btn-add-b").setAttribute("disabled", "true");
+    document.getElementById("btn-score-undo").setAttribute("disabled", "true");
+    document.getElementById("btn-match-finalize-trigger").setAttribute("disabled", "true");
+    document.getElementById("next-match-details").textContent = "No published event. An administrator can create the next event.";
     return;
   }
   
@@ -1521,6 +1530,13 @@ function triggerTournamentReset() {
         });
     }
   }
+}
+
+// Replaced by the shared Postgres bootstrap in production. Keeping a safe
+// fallback prevents an admin from mistaking a local demo reset for ending a
+// real event.
+function triggerEndEvent() {
+  alert("Ending an event requires the shared Postgres server connection.");
 }
 
 // 14. REPORT CSV EXPORT
