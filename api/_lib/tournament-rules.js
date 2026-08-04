@@ -35,7 +35,10 @@ function pairFixedTeams(players, type) {
   return Array.from({ length: Math.floor(players.length / 2) }, (_, index) => [players[index * 2].label, players[index * 2 + 1].label]);
 }
 function scheduleTime(round, settings = {}) {
-  const minutes = Number(settings.startHour || 11) * 60 + (round - 1) * Number(settings.intervalMinutes || 8);
+  const startTime = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(settings.startTime || '')) ? String(settings.startTime) : `${String(Number(settings.startHour || 11)).padStart(2, '0')}:00`;
+  const [startHour, startMinute] = startTime.split(':').map(Number);
+  const spacing = Number(settings.roundDurationMinutes || 8) + Number(settings.intervalMinutes || 0);
+  const minutes = startHour * 60 + startMinute + (round - 1) * spacing;
   const hour = Math.floor(minutes / 60) % 24;
   return `${((hour + 11) % 12) + 1}:${String(minutes % 60).padStart(2, '0')} ${hour >= 12 ? 'PM' : 'AM'}`;
 }

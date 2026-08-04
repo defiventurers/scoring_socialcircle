@@ -128,8 +128,16 @@ window.addEventListener("DOMContentLoaded", () => {
         ? `Current event: ${activeTournament.name} • ${activeTournament.status}`
         : "No active event. You can now create and publish the next event.";
     }
-    if (endButton) {
-      endButton.disabled = !activeTournament || activeTournament.status !== "published" || writeInFlight;
+    if (endButton) endButton.disabled = !activeTournament || activeTournament.status !== "published" || writeInFlight;
+    if (activeTournament) {
+      const duration = Number(activeTournament.settings?.roundDurationMinutes || 8);
+      const points = Number(activeTournament.pointsToWin || 15);
+      const winBy = Number(activeTournament.winBy || 1);
+      const setText = (id, value) => { const element = document.getElementById(id); if (element) element.innerHTML = value; };
+      setText("rules-target-score", `<strong>Target:</strong> First team to at least <strong>${points} points</strong>.`);
+      setText("rules-win-by", `<strong>Winning margin:</strong> Win by <strong>${winBy}</strong>.`);
+      setText("rules-duration", `Matches use a <strong>${duration}-minute</strong> countdown:`);
+      setText("rules-timer-mode", activeTournament.settings?.automaticRoundTimer ? "The timer starts automatically with the first point." : "The referee starts the timer when play begins.");
     }
   }
 
@@ -173,7 +181,7 @@ window.addEventListener("DOMContentLoaded", () => {
     ];
     const undoButton = document.getElementById("btn-score-undo");
     const finalizeButton = document.getElementById("btn-match-finalize-trigger");
-    const manualButton = document.querySelector('button[onclick="openQuickScoreSheet()"]');
+    const manualButton = document.getElementById("btn-manual-score");
 
     for (const button of scoreButtons) {
       if (!button) continue;
@@ -486,7 +494,9 @@ window.addEventListener("DOMContentLoaded", () => {
 
   incrementScore = async function incrementSharedScore(team) {
     if (!currentMatch || currentMatch.status === "finalized") return;
-    if (currentMatch.teamAScore >= 15 || currentMatch.teamBScore >= 15) {
+    const targetScore = Number(activeTournament?.pointsToWin || 15);
+    const maxScore = targetScore + Math.max(1, Number(activeTournament?.winBy || 1)) - 1;
+    if (currentMatch.teamAScore >= maxScore || currentMatch.teamBScore >= maxScore) {
       triggerFinalizeModal();
       return;
     }
@@ -496,6 +506,7 @@ window.addEventListener("DOMContentLoaded", () => {
     try {
       const payload = await runMatchAction("score", { team });
       if (payload.match) {
+        if (activeTournament?.settings?.automaticRoundTimer === true && !timerRunning && payload.match.status === "active") startTimer();
         speakCurrentScore(
           payload.match.teamAScore,
           payload.match.teamBScore,
@@ -516,10 +527,35 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   };
 
+  openQuickScoreSheet = function openConfiguredQuickScoreSheet() {
+    if (!currentMatch || currentMatch.status === "finalized" || activeTournament?.settings?.allowManualScoreOverrides === false) return;
+    const targetScore = Number(activeTournament?.pointsToWin || 15);
+    const winBy = Number(activeTournament?.winBy || 1);
+    const maxScore = targetScore + winBy - 1;
+    const scoreA = document.getElementById("quick-score-a");
+    const scoreB = document.getElementById("quick-score-b");
+    scoreA.max = String(maxScore); scoreB.max = String(maxScore);
+    scoreA.value = currentMatch.teamAScore; scoreB.value = currentMatch.teamBScore;
+    const timeLimit = document.getElementById("quick-score-time-limit");
+    timeLimit.checked = timerRemainingSeconds <= 0;
+    timeLimit.disabled = activeTournament?.settings?.allowTimeLimitResults === false;
+    document.querySelector("#quick-score-overlay p").textContent = `Enter the final score. Standard results require ${targetScore} points and a ${winBy}-point winning margin.`;
+    document.getElementById("quick-score-validation-error").classList.add("hidden");
+    document.getElementById("quick-score-overlay").classList.add("active");
+    toggleQuickScoreRuleTip();
+  };
+
   saveQuickScores = async function saveSharedManualScore() {
+    if (activeTournament?.settings?.allowManualScoreOverrides === false) {
+      alert("Manual score overrides are disabled for this tournament.");
+      return;
+    }
     const scoreA = Number(document.getElementById("quick-score-a")?.value);
     const scoreB = Number(document.getElementById("quick-score-b")?.value);
     const isTimeLimit = Boolean(document.getElementById("quick-score-time-limit")?.checked);
+    const targetScore = Number(activeTournament?.pointsToWin || 15);
+    const winBy = Number(activeTournament?.winBy || 1);
+    const maxScore = targetScore + winBy - 1;
     const errorEl = document.getElementById("quick-score-validation-error");
 
     function showValidation(message) {
@@ -529,16 +565,20 @@ window.addEventListener("DOMContentLoaded", () => {
       errorEl.classList.remove("hidden");
     }
 
-    if (!Number.isInteger(scoreA) || !Number.isInteger(scoreB) || scoreA < 0 || scoreB < 0 || scoreA > 15 || scoreB > 15) {
-      showValidation("Scores must be whole numbers from 0 to 15.");
+    if (!Number.isInteger(scoreA) || !Number.isInteger(scoreB) || scoreA < 0 || scoreB < 0 || scoreA > maxScore || scoreB > maxScore) {
+      showValidation(`Scores must be whole numbers from 0 to ${maxScore}.`);
       return;
     }
     if (scoreA === scoreB) {
       showValidation("Tied scores are not allowed. Play one deciding rally.");
       return;
     }
-    if (!isTimeLimit && scoreA !== 15 && scoreB !== 15) {
-      showValidation("For a standard match, one team must score exactly 15.");
+    if (isTimeLimit && activeTournament?.settings?.allowTimeLimitResults === false) {
+      showValidation("Time-limit results are disabled for this tournament.");
+      return;
+    }
+    if (!isTimeLimit && (Math.max(scoreA, scoreB) < targetScore || Math.abs(scoreA - scoreB) < winBy)) {
+      showValidation(`A standard result requires ${targetScore} points and a ${winBy}-point winning margin.`);
       return;
     }
 
@@ -601,6 +641,50 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   };
 
+  function setBuilderMessage(message = "", mode = "info") {
+    const element = document.getElementById("builder-message");
+    if (!element) return;
+    element.textContent = message;
+    element.className = `action-message ${mode}${message ? "" : " hidden"}`;
+  }
+
+  function setActionPending(buttonId, pending, pendingLabel) {
+    const button = document.getElementById(buttonId);
+    if (!button) return;
+    if (pending) {
+      button.dataset.label = button.textContent;
+      button.textContent = pendingLabel;
+      button.disabled = true;
+      button.setAttribute("aria-busy", "true");
+    } else {
+      button.textContent = button.dataset.label || button.textContent;
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+    }
+  }
+
+  function builderValue(id) { return document.getElementById(id)?.value; }
+  function builderNumber(id) { return Number(builderValue(id)); }
+
+  function validateBuilderSettings() {
+    const name = String(builderValue("builder-name") || "").trim();
+    const errors = [];
+    const nameError = document.getElementById("builder-name-error");
+    if (name.length < 3) errors.push("Enter a tournament name with at least 3 characters.");
+    if (!Number.isInteger(builderNumber("builder-player-count")) || builderNumber("builder-player-count") < 4 || builderNumber("builder-player-count") > 40 || builderNumber("builder-player-count") % 2) errors.push("Players must be an even number from 4 to 40.");
+    if (!Number.isInteger(builderNumber("builder-court-count")) || builderNumber("builder-court-count") < 1 || builderNumber("builder-court-count") > 12) errors.push("Courts must be from 1 to 12.");
+    if (!Number.isInteger(builderNumber("builder-match-duration")) || builderNumber("builder-match-duration") < 1 || builderNumber("builder-match-duration") > 180) errors.push("Match duration must be from 1 to 180 minutes.");
+    if (!Number.isInteger(builderNumber("builder-points-to-win")) || builderNumber("builder-points-to-win") < 1 || builderNumber("builder-points-to-win") > 99) errors.push("Points to win must be from 1 to 99.");
+    if (!Number.isInteger(builderNumber("builder-win-by")) || builderNumber("builder-win-by") < 1 || builderNumber("builder-win-by") > 10) errors.push("Win by must be from 1 to 10.");
+    if (!Number.isInteger(builderNumber("builder-round-count")) || builderNumber("builder-round-count") < 1 || builderNumber("builder-round-count") > 100) errors.push("Rounds must be from 1 to 100.");
+    if (!Number.isInteger(builderNumber("builder-round-gap")) || builderNumber("builder-round-gap") < 0 || builderNumber("builder-round-gap") > 120) errors.push("Time between rounds must be from 0 to 120 minutes.");
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(builderValue("builder-start-time") || ""))) errors.push("Choose a valid tournament start time.");
+    if (nameError) { nameError.textContent = name.length < 3 ? "Enter at least 3 characters." : ""; nameError.classList.toggle("hidden", name.length >= 3); }
+    const summary = document.getElementById("builder-settings-error");
+    if (summary) { summary.textContent = errors[0] || ""; summary.classList.toggle("hidden", !errors.length); }
+    return errors.length ? null : name;
+  }
+
   editTournamentDraft = async function editSharedTournamentDraft(tournamentId) {
     try {
       const payload = await requestJson(`/api/tournaments?tournamentId=${encodeURIComponent(tournamentId)}`);
@@ -615,6 +699,14 @@ window.addEventListener("DOMContentLoaded", () => {
       document.getElementById("builder-player-count").value = builderTournament.maxPlayers;
       document.getElementById("builder-court-count").value = builderTournament.numberOfCourts;
       document.getElementById("builder-round-count").value = builderTournament.settings?.numberOfRounds || 20;
+      document.getElementById("builder-match-duration").value = builderTournament.settings?.roundDurationMinutes || 8;
+      document.getElementById("builder-points-to-win").value = builderTournament.pointsToWin || 15;
+      document.getElementById("builder-win-by").value = builderTournament.winBy || 1;
+      document.getElementById("builder-round-gap").value = builderTournament.settings?.intervalMinutes ?? 2;
+      document.getElementById("builder-start-time").value = builderTournament.settings?.startTime || `${String(builderTournament.settings?.startHour || 11).padStart(2, "0")}:00`;
+      document.getElementById("builder-auto-timer").checked = builderTournament.settings?.automaticRoundTimer !== false;
+      document.getElementById("builder-manual-overrides").checked = builderTournament.settings?.allowManualScoreOverrides !== false;
+      document.getElementById("builder-time-limit-results").checked = builderTournament.settings?.allowTimeLimitResults !== false;
       document.getElementById("builder-location").value = builderTournament.location || "";
       document.getElementById("builder-date").value = builderTournament.date ? String(builderTournament.date).slice(0, 10) : "";
       showBuilderStep(builderPlayers.length ? "players" : "details");
@@ -641,14 +733,30 @@ window.addEventListener("DOMContentLoaded", () => {
     builderPlayers = [];
     builderMatches = [];
     builderTournamentType = "mixed-doubles";
+    setBuilderMessage();
     document.getElementById("builder-title").textContent = "Create Tournament";
     document.getElementById("builder-name").value = "";
-    const payload = await requestJson("/api/tournaments");
-    formatDefinitions = payload.formatDefinitions || {};
-    const select = document.getElementById("builder-format");
-    select.innerHTML = Object.values(formatDefinitions).map((format) => `<option value="${format.id}">${escapeHtml(format.name)}</option>`).join("");
-    showBuilderStep("type");
+    document.getElementById("builder-player-count").value = 16;
+    document.getElementById("builder-court-count").value = 4;
+    document.getElementById("builder-round-count").value = 6;
+    document.getElementById("builder-match-duration").value = 8;
+    document.getElementById("builder-points-to-win").value = 15;
+    document.getElementById("builder-win-by").value = 1;
+    document.getElementById("builder-round-gap").value = 2;
+    document.getElementById("builder-start-time").value = "11:00";
+    document.getElementById("builder-auto-timer").checked = true;
+    document.getElementById("builder-manual-overrides").checked = true;
+    document.getElementById("builder-time-limit-results").checked = true;
     switchTab("builder");
+    try {
+      const payload = await requestJson("/api/tournaments");
+      formatDefinitions = payload.formatDefinitions || {};
+      const select = document.getElementById("builder-format");
+      select.innerHTML = Object.values(formatDefinitions).map((format) => `<option value="${format.id}">${escapeHtml(format.name)}</option>`).join("");
+      showBuilderStep("type");
+    } catch (error) {
+      setBuilderMessage(error.message || "Could not load tournament formats.", "error");
+    }
   };
 
   selectTournamentType = function selectBuilderTournamentType(type) {
@@ -673,9 +781,11 @@ window.addEventListener("DOMContentLoaded", () => {
 
   showBuilderStep = function showSharedBuilderStep(step) {
     const mapping = { type: 0, format: 1, details: 2, players: 3, fixtures: 4, preview: 5 };
+    setBuilderMessage();
     document.querySelectorAll(".builder-step").forEach((element) => element.classList.remove("active"));
     document.getElementById(`builder-${step}-step`)?.classList.add("active");
     document.querySelectorAll("#builder-steps span").forEach((element, index) => element.classList.toggle("active", index <= (mapping[step] ?? 0)));
+    document.getElementById("builder-panel")?.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   function permanentLabels(count) {
@@ -702,45 +812,71 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   saveTournamentConfiguration = async function saveSharedTournamentConfiguration() {
-    const name = document.getElementById("builder-name").value.trim();
-    if (!name) return alert("Enter an event name.");
+    const name = validateBuilderSettings();
+    if (!name || writeInFlight) return;
     const body = {
       name,
       format: document.getElementById("builder-format").value,
       tournamentType: builderTournamentType,
-      maxPlayers: Number(document.getElementById("builder-player-count").value),
-      numberOfCourts: Number(document.getElementById("builder-court-count").value),
-      numberOfRounds: Number(document.getElementById("builder-round-count").value),
-      location: document.getElementById("builder-location").value,
-      date: document.getElementById("builder-date").value || null,
+      maxPlayers: builderNumber("builder-player-count"),
+      numberOfCourts: builderNumber("builder-court-count"),
+      numberOfRounds: builderNumber("builder-round-count"),
+      matchDurationMinutes: builderNumber("builder-match-duration"),
+      pointsToWin: builderNumber("builder-points-to-win"),
+      winBy: builderNumber("builder-win-by"),
+      timeBetweenRoundsMinutes: builderNumber("builder-round-gap"),
+      startTime: builderValue("builder-start-time"),
+      automaticRoundTimer: Boolean(document.getElementById("builder-auto-timer").checked),
+      allowManualScoreOverrides: Boolean(document.getElementById("builder-manual-overrides").checked),
+      allowTimeLimitResults: Boolean(document.getElementById("builder-time-limit-results").checked),
+      location: builderValue("builder-location"),
+      date: builderValue("builder-date") || null,
       status: "draft",
     };
+    writeInFlight = true;
+    setActionPending("builder-save-settings", true, "Saving…");
+    setBuilderMessage("Saving tournament settings…", "loading");
     try {
-      const requestBody = builderTournament
-        ? { ...body, action: "update", tournamentId: builderTournament.id }
-        : body;
+      const requestBody = builderTournament ? { ...body, action: "update", tournamentId: builderTournament.id } : body;
       const payload = await requestJson("/api/tournaments", { method: builderTournament ? "PATCH" : "POST", body: JSON.stringify(requestBody) });
       builderTournament = payload.tournament;
       const directory = await requestJson("/api/players");
       const byLabel = new Map((directory.players || []).map((player) => [player.label, player]));
       builderPlayers = permanentLabels(builderTournament.maxPlayers).map((player) => ({ ...player, displayName: byLabel.get(player.label)?.displayName || "" }));
       renderPlayerInputs("builder-player-grid", builderPlayers);
+      setBuilderMessage("Settings saved.", "success");
       showBuilderStep("players");
-    } catch (error) { alert(error.message); }
+    } catch (error) {
+      setBuilderMessage(error.message || "Could not save tournament settings.", "error");
+    } finally {
+      writeInFlight = false;
+      setActionPending("builder-save-settings", false);
+    }
   };
 
   saveTournamentPlayers = async function saveSharedTournamentPlayers() {
-    if (!builderTournament) return;
+    if (!builderTournament || writeInFlight) return;
     builderPlayers = Array.from(document.querySelectorAll("#builder-player-grid .player-display-name")).map((input) => ({ label: input.dataset.label, gender: input.dataset.gender, displayName: input.value.trim() }));
+    writeInFlight = true;
+    setActionPending("builder-save-players", true, "Saving…");
+    setBuilderMessage("Saving roster…", "loading");
     try {
       await requestJson("/api/tournaments", { method: "PATCH", body: JSON.stringify({ action: "assignPlayers", tournamentId: builderTournament.id, players: builderPlayers }) });
       document.getElementById("builder-assignment-summary").textContent = `${builderPlayers.length} permanent labels assigned. Names are saved independently from fixture labels.`;
       showBuilderStep("fixtures");
-    } catch (error) { alert(error.message); }
+    } catch (error) {
+      setBuilderMessage(error.message || "Could not save players.", "error");
+    } finally {
+      writeInFlight = false;
+      setActionPending("builder-save-players", false);
+    }
   };
 
   generateBuilderFixtures = async function generateSharedBuilderFixtures() {
-    if (!builderTournament) return;
+    if (!builderTournament || writeInFlight) return;
+    writeInFlight = true;
+    setActionPending("builder-generate", true, "Generating…");
+    setBuilderMessage("Generating the draft schedule…", "loading");
     try {
       const payload = await requestJson("/api/tournaments", { method: "PATCH", body: JSON.stringify({ action: "generateFixtures", tournamentId: builderTournament.id }) });
       builderTournament = payload.tournament;
@@ -749,19 +885,33 @@ window.addEventListener("DOMContentLoaded", () => {
       document.getElementById("builder-preview-list").innerHTML = builderMatches.slice(0, 24).map((match) => `<div class="fixture-preview-row"><strong>R${match.round} · Court ${match.court}</strong><span>${match.teamA.join(" / ")} vs ${match.teamB.join(" / ")}</span></div>`).join("") + (builderMatches.length > 24 ? `<p class="setup-note">Showing first 24 of ${builderMatches.length} matches.</p>` : "");
       setDatabaseBadge(`Shared Postgres • ${builderMatches.length} matches`);
       showBuilderStep("preview");
-    } catch (error) { alert(error.message); }
+    } catch (error) {
+      setBuilderMessage(error.message || "Could not generate fixtures.", "error");
+    } finally {
+      writeInFlight = false;
+      setActionPending("builder-generate", false);
+    }
   };
 
   publishBuilderTournament = async function publishSharedBuilderTournament() {
-    if (!builderTournament || !confirm(`Publish “${builderTournament.name}”? It will become the active scoring event.`)) return;
+    if (!builderTournament || writeInFlight || !confirm(`Publish “${builderTournament.name}”? It will become the active scoring event.`)) return;
+    writeInFlight = true;
+    setActionPending("builder-publish", true, "Publishing…");
+    setBuilderMessage("Publishing tournament…", "loading");
     try {
       const payload = await requestJson("/api/tournaments", { method: "PATCH", body: JSON.stringify({ action: "publish", tournamentId: builderTournament.id }) });
       activeTournament = payload.tournament;
       builderTournament = null;
+      writeInFlight = false;
       await syncMatchesFromServer({ initial: true });
       switchTab("admin");
-      alert("Event published. Court devices can now load its fixtures.");
-    } catch (error) { alert(error.message); }
+      setDatabaseBadge(`Published • ${builderMatches.length} matches`);
+    } catch (error) {
+      setBuilderMessage(error.message || "Could not publish the tournament.", "error");
+    } finally {
+      writeInFlight = false;
+      setActionPending("builder-publish", false);
+    }
   };
 
   openPlayersPage = async function openSharedPlayersPage() {

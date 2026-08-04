@@ -21,8 +21,9 @@ let leaderboardDetailed = localStorage.getItem("leaderboard_detailed") === "true
 
 // Timer state
 let timerInterval = null;
-let timerRemainingSeconds = 8 * 60; // 8 minutes
+let timerRemainingSeconds = 8 * 60;
 let timerRunning = false;
+let timerMatchId = null;
 
 // Local Demo Database Store (for fallback)
 const LOCAL_STORAGE_KEY = "pickleball_social_matches";
@@ -616,7 +617,10 @@ function renderActiveScoreboard() {
   }
   
   // Header Meta
-  document.getElementById("referee-round-title").textContent = `ROUND ${currentMatch.round} OF 20`;
+  const configuredRounds = Number(activeTournament?.settings?.numberOfRounds || Math.max(1, ...Object.values(matchesCache).map((match) => Number(match.round || 0))));
+  const targetScore = Number(activeTournament?.pointsToWin || 15);
+  const manualOverrides = activeTournament?.settings?.allowManualScoreOverrides !== false;
+  document.getElementById("referee-round-title").textContent = `ROUND ${currentMatch.round} OF ${configuredRounds}`;
   document.getElementById("score-round-num").textContent = currentMatch.round;
   document.getElementById("score-time-val").textContent = currentMatch.time;
   
@@ -679,7 +683,7 @@ function renderActiveScoreboard() {
     btnB.style.opacity = "1";
     
     // Highlight if target score reached
-    if (currentMatch.teamAScore >= 15 || currentMatch.teamBScore >= 15) {
+    if (currentMatch.teamAScore >= targetScore || currentMatch.teamBScore >= targetScore) {
       finalizeTrigger.className = "btn btn-gold";
       finalizeTrigger.innerHTML = `<i data-lucide="trophy"></i> Ready to Finalize Match!`;
     } else {
@@ -689,8 +693,13 @@ function renderActiveScoreboard() {
     finalizeTrigger.removeAttribute("disabled");
   }
   
-  // Undo button status
+  // Undo and manual-entry availability
   const undoBtn = document.getElementById("btn-score-undo");
+  const manualButton = document.getElementById("btn-manual-score");
+  if (manualButton) {
+    manualButton.classList.toggle("hidden", !manualOverrides);
+    manualButton.disabled = !manualOverrides || currentMatch.status === "finalized";
+  }
   if (currentMatch.status === "finalized" || !currentMatch.scoreHistory || currentMatch.scoreHistory.length === 0) {
     undoBtn.setAttribute("disabled", "true");
   } else {
@@ -703,9 +712,10 @@ function renderActiveScoreboard() {
   if (nextMatch) {
     nextEl.textContent = `Round ${nextMatch.round} at ${nextMatch.time} — ${nextMatch.teamA.join(" / ")} vs ${nextMatch.teamB.join(" / ")}`;
   } else {
-    nextEl.textContent = "This is the final round of the day!";
+    nextEl.textContent = "This is the final scheduled match on this court.";
   }
-  
+
+  syncTimerForCurrentMatch();
   initLucide();
 }
 
@@ -995,7 +1005,7 @@ function submitFinalization() {
   });
 }
 
-// 9. TIMER ENGINE (8 Minutes)
+// 9. CONFIGURED MATCH TIMER
 function startTimer() {
   if (timerRunning) return;
   timerRunning = true;
@@ -1018,7 +1028,8 @@ function pauseTimer() {
 
 function resetTimer() {
   pauseTimer();
-  timerRemainingSeconds = 8 * 60;
+  timerMatchId = currentMatch?.id || null;
+  timerRemainingSeconds = Math.max(1, Number(activeTournament?.settings?.roundDurationMinutes || 8)) * 60;
   updateTimerDisplay();
   const timerValEl = document.getElementById("match-timer-val");
   timerValEl.classList.remove("time-up");
@@ -1034,6 +1045,24 @@ function updateTimerDisplay() {
   if (timerRemainingSeconds === 0) {
     timerValEl.classList.add("time-up");
     timerValEl.textContent = "TIME UP";
+  } else {
+    timerValEl.classList.remove("time-up");
+  }
+}
+
+function syncTimerForCurrentMatch() {
+  const timerContainer = document.querySelector(".timer-container");
+  if (!timerContainer) return;
+  const duration = Math.max(1, Number(activeTournament?.settings?.roundDurationMinutes || 8));
+  const automatic = activeTournament?.settings?.automaticRoundTimer === true;
+  timerContainer.classList.toggle("hidden", !currentMatch);
+  document.getElementById("match-timer-label").textContent = `${duration}-minute match countdown`;
+  document.getElementById("match-timer-mode").textContent = automatic ? "Starts with the first point" : "Start manually when play begins";
+  if (timerMatchId !== currentMatch?.id) {
+    pauseTimer();
+    timerMatchId = currentMatch?.id || null;
+    timerRemainingSeconds = duration * 60;
+    updateTimerDisplay();
   }
 }
 
@@ -1422,6 +1451,9 @@ function renderAdminPortal() {
   const completedCount = Object.values(matchesCache).filter(m => m.status === "finalized").length;
   const activeCourts = new Set(Object.values(matchesCache).filter(m => m.status === "active").map(m => m.court)).size;
   
+  const createButton = document.getElementById("btn-create-event");
+  if (createButton) createButton.classList.toggle("hidden", currentCourt !== "admin");
+
   document.getElementById("admin-stat-completed").textContent = completedCount;
   document.getElementById("admin-stat-active").textContent = activeCourts;
   

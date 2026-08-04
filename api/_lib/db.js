@@ -501,10 +501,10 @@ export async function appendAdaptiveFixtures(tournamentId) {
   const generated = generateNextAdaptiveFixtures(tournament, roster, latest);
   if (!generated.length) return [];
   const sql = getSql();
-  const matchPlayersPayload = JSON.stringify(generated.flatMap((match) => [
-    ...match.team_a.map((label, index) => ({ matchId: match.id, label, team: 'A', position: index + 1 })),
-    ...match.team_b.map((label, index) => ({ matchId: match.id, label, team: 'B', position: index + 1 })),
-  ]));
+    const matchPlayersPayload = JSON.stringify(generated.flatMap((match) => [
+      ...match.team_a.map((label, index) => ({ matchId: match.id, label, team: 'A', position: index + 1 })),
+      ...match.team_b.map((label, index) => ({ matchId: match.id, label, team: 'B', position: index + 1 })),
+    ]));
   const payload = JSON.stringify(generated);
   await sql.transaction((tx) => [
     tx`SELECT pg_advisory_xact_lock(hashtext(${tournamentId}))`,

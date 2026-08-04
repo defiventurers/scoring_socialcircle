@@ -56,7 +56,11 @@ export default async function handler(req, res) {
       return sendJson(res, 409, { error: 'This event has ended. Its matches are read-only.' });
     }
     const targetScore = Math.max(1, Number(tournament.pointsToWin || 15));
-    const isIntegerScore = (value) => Number.isInteger(value) && value >= 0 && value <= targetScore;
+    const winBy = Math.max(1, Number(tournament.winBy || 1));
+    const settings = tournament.settings || {};
+    const allowManualScoreOverrides = settings.allowManualScoreOverrides !== false;
+    const allowTimeLimitResults = settings.allowTimeLimitResults !== false;
+    const isIntegerScore = (value) => Number.isInteger(value) && value >= 0 && value <= targetScore + winBy - 1;
 
     if (action === 'resetAll') {
       if (session.role !== 'admin') {
@@ -109,7 +113,7 @@ export default async function handler(req, res) {
       if (match.status === 'finalized') {
         return sendJson(res, 409, { error: 'This match is finalized and locked.', match });
       }
-      if (match.teamAScore >= targetScore || match.teamBScore >= targetScore) {
+      if (match.teamAScore >= targetScore + winBy - 1 || match.teamBScore >= targetScore + winBy - 1) {
         return sendJson(res, 409, { error: 'The target score is already reached.', match });
       }
 
@@ -135,8 +139,8 @@ export default async function handler(req, res) {
             AND id = ${matchId}
             AND version = ${expectedVersion}
             AND status <> 'finalized'
-            AND team_a_score < ${targetScore}
-            AND team_b_score < ${targetScore}
+            AND team_a_score < ${targetScore + winBy - 1}
+            AND team_b_score < ${targetScore + winBy - 1}
           RETURNING id
         `,
         matchId,
@@ -180,22 +184,25 @@ export default async function handler(req, res) {
         res,
       );
     } else if (action === 'manualScore') {
+      if (!allowManualScoreOverrides) {
+        return sendJson(res, 403, { error: 'Manual score overrides are disabled for this tournament.' });
+      }
       const scoreA = Number(body.scoreA);
       const scoreB = Number(body.scoreB);
       const isTimeLimit = Boolean(body.isTimeLimit);
 
       if (!isIntegerScore(scoreA) || !isIntegerScore(scoreB)) {
-        return sendJson(res, 400, { error: `Scores must be whole numbers from 0 to ${targetScore}.` });
+        return sendJson(res, 400, { error: `Scores must be whole numbers from 0 to ${targetScore + winBy - 1}.` });
       }
       if (scoreA === scoreB) {
         return sendJson(res, 400, { error: 'Tied scores cannot be saved.' });
       }
-      const allowTimeLimitResults = tournament.settings?.allowTimeLimitResults !== false;
       if (isTimeLimit && !allowTimeLimitResults) {
         return sendJson(res, 400, { error: 'Time-limit results are disabled for this tournament.' });
       }
-      if (!isTimeLimit && scoreA !== targetScore && scoreB !== targetScore) {
-        return sendJson(res, 400, { error: `A standard match must have a winner on ${targetScore} points.` });
+      const reachesTarget = Math.max(scoreA, scoreB) >= targetScore && Math.abs(scoreA - scoreB) >= winBy;
+      if (!isTimeLimit && !reachesTarget) {
+        return sendJson(res, 400, { error: `A standard match requires at least ${targetScore} points and a ${winBy}-point winning margin.` });
       }
       if (match.status === 'finalized') {
         return sendJson(res, 409, { error: 'This match is finalized and locked.', match });
@@ -241,10 +248,9 @@ export default async function handler(req, res) {
         return sendJson(res, 400, { error: 'A tied match cannot be finalized.' });
       }
 
-      const allowTimeLimitResults = tournament.settings?.allowTimeLimitResults !== false;
-      const reachesTarget = match.teamAScore === targetScore || match.teamBScore === targetScore;
+      const reachesTarget = Math.max(match.teamAScore, match.teamBScore) >= targetScore && Math.abs(match.teamAScore - match.teamBScore) >= winBy;
       if (!reachesTarget && !allowTimeLimitResults) {
-        return sendJson(res, 400, { error: `A standard match must have a winner on ${targetScore} points.` });
+        return sendJson(res, 400, { error: `A standard match requires at least ${targetScore} points and a ${winBy}-point winning margin.` });
       }
       const finishReason = reachesTarget ? 'target-score' : 'time-limit';
       const finalizedBy = session.role === 'admin' ? 'admin' : `Court ${session.court}`;

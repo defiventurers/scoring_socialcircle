@@ -23,7 +23,14 @@ function validTournamentId(value) {
 }
 
 function normalizedDraft(body, id) {
-  const maxPlayers = Math.max(4, Math.min(40, Number(body.maxPlayers || body.numberOfPlayers || 4)));
+  const settingsInput = body.settings || {};
+  const number = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback;
+  const maxPlayers = Math.max(4, Math.min(40, Math.round(number(body.maxPlayers || body.numberOfPlayers, 4))));
+  const numberOfRounds = Math.max(1, Math.min(100, Math.round(number(body.numberOfRounds ?? settingsInput.numberOfRounds, 20))));
+  const roundDurationMinutes = Math.max(1, Math.min(180, Math.round(number(body.matchDurationMinutes ?? settingsInput.roundDurationMinutes, 8))));
+  const intervalMinutes = Math.max(0, Math.min(120, Math.round(number(body.timeBetweenRoundsMinutes ?? settingsInput.intervalMinutes, 0))));
+  const startTime = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.startTime || settingsInput.startTime || '')) ? String(body.startTime || settingsInput.startTime) : '11:00';
+  const boolean = (value, fallback) => typeof value === 'boolean' ? value : fallback;
   return {
     id,
     name: String(body.name || '').trim(),
@@ -31,13 +38,20 @@ function normalizedDraft(body, id) {
     tournamentType: TOURNAMENT_TYPES.includes(body.tournamentType) ? body.tournamentType : 'mixed-doubles',
     date: body.date || null,
     location: String(body.location || '').trim() || null,
-    numberOfCourts: Math.max(1, Math.min(12, Number(body.numberOfCourts || 1))),
+    numberOfCourts: Math.max(1, Math.min(12, Math.round(number(body.numberOfCourts, 1)))),
     maxPlayers,
-    pointsToWin: Math.max(1, Number(body.pointsToWin || 15)),
-    winBy: Math.max(1, Number(body.winBy || 1)),
+    pointsToWin: Math.max(1, Math.min(99, Math.round(number(body.pointsToWin, 15)))),
+    winBy: Math.max(1, Math.min(10, Math.round(number(body.winBy, 1)))),
     settings: {
-      ...(body.settings || {}),
-      numberOfRounds: Math.max(1, Math.min(100, Number(body.numberOfRounds || body.settings?.numberOfRounds || 20))),
+      ...settingsInput,
+      numberOfRounds,
+      roundDurationMinutes,
+      intervalMinutes,
+      startTime,
+      startHour: Number(startTime.slice(0, 2)),
+      automaticRoundTimer: boolean(body.automaticRoundTimer ?? settingsInput.automaticRoundTimer, false),
+      allowManualScoreOverrides: boolean(body.allowManualScoreOverrides ?? settingsInput.allowManualScoreOverrides, true),
+      allowTimeLimitResults: boolean(body.allowTimeLimitResults ?? settingsInput.allowTimeLimitResults, true),
     },
   };
 }

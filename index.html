@@ -243,21 +243,9 @@
 
             </div>
 
-            <!-- Voice Synthesizer Settings Panel -->
-            <div class="voice-settings-card">
-              <div class="voice-info">
-                <span class="voice-title">Vocal Score Calls</span>
-                <span class="voice-subtitle">Announces points after scores save</span>
-              </div>
-              <div class="voice-actions">
-                <button id="btn-voice-test" class="btn-toggle-voice" onclick="testVoiceCall()">Test</button>
-                <button id="btn-voice-toggle" class="btn-toggle-voice active" onclick="toggleVoicePreference()">Voice ON</button>
-              </div>
-            </div>
-
-            <!-- 8-Minute Timed Rally Widget -->
+            <!-- Configured round timer -->
             <div class="timer-container">
-              <div class="meta-label">8-Minute Duration Match Timer</div>
+              <div class="timer-header"><div><div class="meta-label" id="match-timer-label">Match countdown</div><small id="match-timer-mode">Starts with the first point</small></div><button id="btn-voice-toggle" class="btn-toggle-voice active" onclick="toggleVoicePreference()">Voice ON</button></div>
               <div class="timer-display" id="match-timer-val">08:00</div>
               <div class="timer-buttons">
                 <button class="btn-timer-icon" onclick="startTimer()"><i data-lucide="play" style="width: 16px; height: 16px; color: var(--success);"></i></button>
@@ -271,7 +259,7 @@
               <button class="btn btn-outline" id="btn-score-undo" onclick="performUndo()" disabled>
                 <i data-lucide="undo-2"></i> Undo Point
               </button>
-              <button class="btn btn-secondary" onclick="openQuickScoreSheet()">
+              <button class="btn btn-secondary" id="btn-manual-score" onclick="openQuickScoreSheet()">
                 <i data-lucide="keyboard"></i> Enter Final Score
               </button>
             </div>
@@ -354,8 +342,8 @@
                 <p>The event is run with <strong>Rally Scoring</strong> which speeds up game progression:</p>
                 <ul>
                   <li><strong>Rally Scoring:</strong> Every single rally awards 1 point, regardless of which team served.</li>
-                  <li><strong>Target:</strong> First team to reach <strong>15 points</strong> wins.</li>
-                  <li><strong>No Win By 2:</strong> There is a "Win by 1" rule. First to 15 is crowned winner (e.g. score of 15–14 is final).</li>
+                  <li id="rules-target-score"><strong>Target:</strong> The configured target score applies to every court.</li>
+                  <li id="rules-win-by"><strong>Winning margin:</strong> The configured “win by” rule is enforced for standard results.</li>
                 </ul>
               </div>
 
@@ -372,9 +360,9 @@
 
               <div class="rules-card">
                 <h3>Time Limit Termination</h3>
-                <p>Rounds are limited to an 8-minute window:</p>
+                <p id="rules-duration">The configured match countdown is shown on every referee panel:</p>
                 <ul>
-                  <li>An optional 8-minute countdown timer runs on the referee panel.</li>
+                  <li id="rules-timer-mode">The timer can start automatically with the first point or manually.</li>
                   <li>Upon timer expiry ("TIME UP"), referees finalize the ongoing rally.</li>
                   <li>If a team is leading, the referee can finalize the current score directly.</li>
                   <li>If tied at timer expiry, players must perform <strong>one deciding rally</strong> to resolve the tie. No tie scores are allowed.</li>
@@ -456,7 +444,7 @@
           <div id="builder-panel" class="tab-panel">
             <div class="builder-shell">
               <div class="builder-header"><div><div class="setup-eyebrow">Tournament Builder</div><h3 id="builder-title">Create Tournament</h3></div><button class="btn-inline-change" onclick="switchTab('admin')">Close</button></div>
-              <div class="builder-steps" id="builder-steps"><span class="active">Type</span><span>Format</span><span>Details</span><span>Players</span><span>Fixtures</span><span>Preview</span><span>Publish</span></div>
+              <div class="builder-steps" id="builder-steps"><span class="active">Type</span><span>Format</span><span>Settings</span><span>Players</span><span>Fixtures</span><span>Preview</span><span>Publish</span></div>
 
               <section id="builder-type-step" class="builder-step active">
                 <h4>Choose tournament type</h4>
@@ -465,6 +453,7 @@
                   <button class="choice-card" onclick="selectTournamentType('mens-doubles')"><strong>Men's Doubles</strong><small>Men's roster and teams</small></button>
                   <button class="choice-card" onclick="selectTournamentType('womens-doubles')"><strong>Women's Doubles</strong><small>Women's roster and teams</small></button>
                 </div>
+                <div class="builder-actions"><button class="btn btn-outline" onclick="switchTab('admin')">Back</button></div>
               </section>
 
               <section id="builder-format-step" class="builder-step">
@@ -473,25 +462,38 @@
                   <summary>About this format</summary>
                   <div id="format-info-content"></div>
                 </details>
-                <button class="btn btn-primary" onclick="confirmTournamentFormat()">Use this format</button>
+                <div class="builder-actions"><button class="btn btn-outline" onclick="showBuilderStep('type')">Back</button><button class="btn btn-primary" onclick="confirmTournamentFormat()">Next: Settings</button></div>
               </section>
 
               <section id="builder-details-step" class="builder-step">
-                <div class="setup-grid">
-                  <label class="setup-field"><span>Tournament name</span><input id="builder-name" class="form-input" placeholder="Summer Social" /></label>
-                  <label class="setup-field"><span>Players</span><input id="builder-player-count" class="form-input" type="number" min="4" max="40" value="16" /></label>
-                  <label class="setup-field"><span>Courts</span><input id="builder-court-count" class="form-input" type="number" min="1" max="12" value="4" /></label>
-                  <label class="setup-field"><span>Rounds</span><input id="builder-round-count" class="form-input" type="number" min="1" max="100" value="6" /></label>
-                  <label class="setup-field"><span>Location</span><input id="builder-location" class="form-input" /></label>
+                <h4>Tournament settings</h4>
+                <p class="builder-help">Set the rules once. Every court and timer will use these values.</p>
+                <div class="settings-grid">
+                  <label class="setup-field field-wide"><span>Tournament name</span><input id="builder-name" class="form-input" placeholder="Summer Social" autocomplete="off" /><small id="builder-name-error" class="field-error hidden"></small></label>
+                  <label class="setup-field"><span>Players</span><input id="builder-player-count" class="form-input" type="number" inputmode="numeric" min="4" max="40" step="2" value="16" /></label>
+                  <label class="setup-field"><span>Match duration</span><div class="input-with-unit"><input id="builder-match-duration" class="form-input" type="number" inputmode="numeric" min="1" max="180" value="8" /><span>min</span></div></label>
+                  <label class="setup-field"><span>Points to win</span><input id="builder-points-to-win" class="form-input" type="number" inputmode="numeric" min="1" max="99" value="15" /></label>
+                  <label class="setup-field"><span>Win by</span><input id="builder-win-by" class="form-input" type="number" inputmode="numeric" min="1" max="10" value="1" /></label>
+                  <label class="setup-field"><span>Courts</span><input id="builder-court-count" class="form-input" type="number" inputmode="numeric" min="1" max="12" value="4" /></label>
+                  <label id="builder-round-count-field" class="setup-field"><span>Rounds</span><input id="builder-round-count" class="form-input" type="number" inputmode="numeric" min="1" max="100" value="6" /></label>
+                  <label class="setup-field"><span>Between rounds</span><div class="input-with-unit"><input id="builder-round-gap" class="form-input" type="number" inputmode="numeric" min="0" max="120" value="2" /><span>min</span></div></label>
+                  <label class="setup-field"><span>Start time</span><input id="builder-start-time" class="form-input" type="time" value="11:00" /></label>
                   <label class="setup-field"><span>Date</span><input id="builder-date" class="form-input" type="date" /></label>
+                  <label class="setup-field field-wide"><span>Location</span><input id="builder-location" class="form-input" autocomplete="off" /></label>
                 </div>
-                <button class="btn btn-primary" onclick="saveTournamentConfiguration()">Continue to Players</button>
+                <details class="format-info-card advanced-options"><summary>Advanced match controls</summary><div class="toggle-stack">
+                  <label class="toggle-row"><span><strong>Automatic round timer</strong><small>Start the countdown when the first point is scored.</small></span><input id="builder-auto-timer" type="checkbox" checked /></label>
+                  <label class="toggle-row"><span><strong>Manual score overrides</strong><small>Allow referees to enter a full score directly.</small></span><input id="builder-manual-overrides" type="checkbox" checked /></label>
+                  <label class="toggle-row"><span><strong>Time-limit results</strong><small>Allow a leading score to be finalized when time expires.</small></span><input id="builder-time-limit-results" type="checkbox" checked /></label>
+                </div></details>
+                <div id="builder-settings-error" class="action-message error hidden" role="alert"></div>
+                <div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('format')">Back</button><button id="builder-save-settings" class="btn btn-primary" onclick="saveTournamentConfiguration()">Save & Next</button></div>
               </section>
 
-              <section id="builder-players-step" class="builder-step"><p class="setup-note">Permanent labels never change. Display names are optional.</p><div id="builder-player-grid" class="player-assignment-grid"></div><button class="btn btn-primary" onclick="saveTournamentPlayers()">Assign Players</button></section>
-              <section id="builder-fixtures-step" class="builder-step"><div id="builder-assignment-summary" class="setup-note"></div><button class="btn btn-primary" onclick="generateBuilderFixtures()">Generate Fixtures</button></section>
-              <section id="builder-preview-step" class="builder-step"><div id="builder-preview-summary" class="setup-note"></div><div id="builder-preview-list" class="fixture-preview"></div><button class="btn btn-primary" onclick="publishBuilderTournament()">Publish Tournament</button></section>
-              <div id="builder-message" class="setup-note hidden"></div>
+              <section id="builder-players-step" class="builder-step"><h4>Players</h4><p class="builder-help">Confirm the roster. Permanent labels never change; display names are optional.</p><div id="builder-player-grid" class="player-assignment-grid"></div><div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('details')">Back</button><button id="builder-save-players" class="btn btn-primary" onclick="saveTournamentPlayers()">Save Players</button></div></section>
+              <section id="builder-fixtures-step" class="builder-step"><h4>Generate fixtures</h4><div id="builder-assignment-summary" class="setup-note"></div><p class="builder-help">Create the draft schedule, then review every matchup before publishing.</p><div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('players')">Back</button><button id="builder-generate" class="btn btn-primary" onclick="generateBuilderFixtures()">Generate Fixtures</button></div></section>
+              <section id="builder-preview-step" class="builder-step"><h4>Preview & publish</h4><div id="builder-preview-summary" class="setup-note"></div><div id="builder-preview-list" class="fixture-preview"></div><div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('fixtures')">Back</button><button id="builder-publish" class="btn btn-primary" onclick="publishBuilderTournament()">Publish Tournament</button></div></section>
+              <div id="builder-message" class="action-message hidden" role="status" aria-live="polite"></div>
             </div>
           </div>
 
