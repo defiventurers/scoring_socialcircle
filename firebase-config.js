@@ -10,7 +10,6 @@ window.addEventListener("DOMContentLoaded", () => {
   let syncTimer = null;
   let syncInFlight = false;
   let writeInFlight = false;
-  let activeTournament = null;
   let builderTournament = null;
   let builderPlayers = [];
   let builderMatches = [];

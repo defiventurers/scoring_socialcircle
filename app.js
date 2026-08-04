@@ -9,6 +9,7 @@ let currentCourt = null; // Integer 1-4, or "admin"
 let currentMatch = null; // Active match object
 let matchesCache = {};   // Map of matchId -> matchObject
 let serverLeaderboard = null;
+let activeTournament = null;
 let firebaseEnabled = false;
 let activeTab = "score";
 let isOnline = false;
