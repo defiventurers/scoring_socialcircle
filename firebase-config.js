@@ -265,9 +265,9 @@ window.addEventListener("DOMContentLoaded", () => {
           loginError.classList.remove("hidden");
         }
       } else {
-        isOnline = false;
-        setOnlineStatus(false);
-        setDatabaseBadge("Shared Postgres Offline", true);
+        isOnline = Boolean(navigator.onLine);
+        setOnlineStatus(isOnline);
+        setDatabaseBadge(error.message || "Shared Postgres Unavailable", true);
       }
       return false;
     } finally {
@@ -340,9 +340,13 @@ window.addEventListener("DOMContentLoaded", () => {
         }, 1200);
       } else if (error.status === 401) {
         clearServerSession(true);
-      } else if (!navigator.onLine || error.status === 503) {
+      } else if (!navigator.onLine) {
         isOnline = false;
         setOnlineStatus(false);
+      } else {
+        isOnline = true;
+        setOnlineStatus(true);
+        setDatabaseBadge(error.message || "Server request failed", true);
       }
 
       if (!conflict) setSavingState(false, true);
