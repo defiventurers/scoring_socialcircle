@@ -1501,3 +1501,12 @@ header {
 .player-label-pill { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; height: 36px; border-radius: 50%; background: var(--primary-green); color: white; font-family: var(--font-display); font-weight: 700; }
 .fixture-preview { display: grid; gap: 8px; margin: 16px 0 22px; max-height: 440px; overflow: auto; }
 .fixture-preview-row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; background: white; font-size: 13px; }
+.choice-stack { display: grid; gap: 10px; margin: 16px 0 20px; }
+.choice-card { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 100%; padding: 16px; border: 1px solid var(--border-color); border-radius: 12px; background: white; color: var(--primary-green); text-align: left; cursor: pointer; }
+.choice-card small { color: var(--text-muted); }
+.format-info-card { margin: 14px 0 18px; padding: 14px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-cream); }
+.format-info-card summary { cursor: pointer; font-weight: 700; color: var(--primary-green); }
+.format-info-card dl { display: grid; gap: 4px; margin-top: 12px; }
+.format-info-card dt { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--gold-accent); }
+.format-info-card dd { margin: 0 0 8px; font-size: 13px; color: var(--text-muted); }
+@media (max-width: 640px) { .builder-shell { padding: 14px 10px 90px; } .builder-header { align-items: flex-start; } .builder-steps { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 4px; } .builder-steps span { white-space: nowrap; } .player-assignment-grid { grid-template-columns: 1fr; } }

@@ -1,10 +1,6 @@
 import { canModifyCourt, getSessionFromRequest } from './_lib/auth.js';
-import { ensureDatabase, EVENT_ID, getMatch, getSql, getTournament, listMatches } from './_lib/db.js';
+import { appendAdaptiveFixtures, ensureDatabase, EVENT_ID, getMatch, getSql, getTournament, listMatches } from './_lib/db.js';
 import { methodNotAllowed, parseJsonBody, sendJson } from './_lib/http.js';
-
-function isIntegerScore(value) {
-  return Number.isInteger(value) && value >= 0 && value <= 15;
-}
 
 async function sendConflict(res, matchId, tournamentId, message = 'The match changed on another device.') {
   const latestMatch = await getMatch(matchId, tournamentId);
@@ -59,6 +55,8 @@ export default async function handler(req, res) {
     if (tournament.status !== 'published') {
       return sendJson(res, 409, { error: 'This event has ended. Its matches are read-only.' });
     }
+    const targetScore = Math.max(1, Number(tournament.pointsToWin || 15));
+    const isIntegerScore = (value) => Number.isInteger(value) && value >= 0 && value <= targetScore;
 
     if (action === 'resetAll') {
       if (session.role !== 'admin') {
@@ -87,7 +85,7 @@ export default async function handler(req, res) {
     }
 
     const matchId = String(body.matchId || '');
-    if (!/^(?:[a-z0-9-]+_)?court\d+_round\d+$/.test(matchId)) {
+    if (!/^[a-z0-9]+(?:[a-z0-9_-]*[a-z0-9])?_court\d+_round\d+$/.test(matchId) && !/^court\d+_round\d+$/.test(matchId)) {
       return sendJson(res, 400, { error: 'Invalid match ID.' });
     }
 
@@ -111,7 +109,7 @@ export default async function handler(req, res) {
       if (match.status === 'finalized') {
         return sendJson(res, 409, { error: 'This match is finalized and locked.', match });
       }
-      if (match.teamAScore >= 15 || match.teamBScore >= 15) {
+      if (match.teamAScore >= targetScore || match.teamBScore >= targetScore) {
         return sendJson(res, 409, { error: 'The target score is already reached.', match });
       }
 
@@ -137,8 +135,8 @@ export default async function handler(req, res) {
             AND id = ${matchId}
             AND version = ${expectedVersion}
             AND status <> 'finalized'
-            AND team_a_score < 15
-            AND team_b_score < 15
+            AND team_a_score < ${targetScore}
+            AND team_b_score < ${targetScore}
           RETURNING id
         `,
         matchId,
@@ -187,13 +185,17 @@ export default async function handler(req, res) {
       const isTimeLimit = Boolean(body.isTimeLimit);
 
       if (!isIntegerScore(scoreA) || !isIntegerScore(scoreB)) {
-        return sendJson(res, 400, { error: 'Scores must be whole numbers from 0 to 15.' });
+        return sendJson(res, 400, { error: `Scores must be whole numbers from 0 to ${targetScore}.` });
       }
       if (scoreA === scoreB) {
         return sendJson(res, 400, { error: 'Tied scores cannot be saved.' });
       }
-      if (!isTimeLimit && scoreA !== 15 && scoreB !== 15) {
-        return sendJson(res, 400, { error: 'A standard match must have a winner on 15 points.' });
+      const allowTimeLimitResults = tournament.settings?.allowTimeLimitResults !== false;
+      if (isTimeLimit && !allowTimeLimitResults) {
+        return sendJson(res, 400, { error: 'Time-limit results are disabled for this tournament.' });
+      }
+      if (!isTimeLimit && scoreA !== targetScore && scoreB !== targetScore) {
+        return sendJson(res, 400, { error: `A standard match must have a winner on ${targetScore} points.` });
       }
       if (match.status === 'finalized') {
         return sendJson(res, 409, { error: 'This match is finalized and locked.', match });
@@ -239,10 +241,12 @@ export default async function handler(req, res) {
         return sendJson(res, 400, { error: 'A tied match cannot be finalized.' });
       }
 
-      const finishReason =
-        match.teamAScore === 15 || match.teamBScore === 15
-          ? 'target-score'
-          : 'time-limit';
+      const allowTimeLimitResults = tournament.settings?.allowTimeLimitResults !== false;
+      const reachesTarget = match.teamAScore === targetScore || match.teamBScore === targetScore;
+      if (!reachesTarget && !allowTimeLimitResults) {
+        return sendJson(res, 400, { error: `A standard match must have a winner on ${targetScore} points.` });
+      }
+      const finishReason = reachesTarget ? 'target-score' : 'time-limit';
       const finalizedBy = session.role === 'admin' ? 'admin' : `Court ${session.court}`;
 
       updatedMatch = await runVersionedUpdate(
@@ -332,6 +336,10 @@ export default async function handler(req, res) {
     }
 
     if (!updatedMatch) return;
+    if (action === 'finalize') {
+      const matches = await appendAdaptiveFixtures(tournamentId);
+      return sendJson(res, 200, { match: updatedMatch, ...(matches.length ? { matches } : {}) });
+    }
     return sendJson(res, 200, { match: updatedMatch });
   } catch (error) {
     console.error(`Match action ${action || 'unknown'} failed:`, error);

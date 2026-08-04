@@ -1,7 +1,6 @@
 import { getSessionFromRequest } from './_lib/auth.js';
 import {
   assignTournamentPlayers,
-  createTournamentWithFixtures,
   endTournament,
   ensureDatabase,
   generateTournamentFixtures,
@@ -11,9 +10,9 @@ import {
   listTournaments,
   publishTournament,
   saveTournamentDraft,
-  TOURNAMENT_FORMATS,
 } from './_lib/db.js';
 import { methodNotAllowed, parseJsonBody, sendJson } from './_lib/http.js';
+import { TOURNAMENT_FORMATS, TOURNAMENT_TYPES, getFormatDefinitions, validateRosterForTournament } from './_lib/tournament-rules.js';
 
 function tournamentIdFrom(value) {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -29,6 +28,7 @@ function normalizedDraft(body, id) {
     id,
     name: String(body.name || '').trim(),
     format: TOURNAMENT_FORMATS.includes(body.format) ? body.format : 'custom',
+    tournamentType: TOURNAMENT_TYPES.includes(body.tournamentType) ? body.tournamentType : 'mixed-doubles',
     date: body.date || null,
     location: String(body.location || '').trim() || null,
     numberOfCourts: Math.max(1, Math.min(12, Number(body.numberOfCourts || 1))),
@@ -65,9 +65,11 @@ export default async function handler(req, res) {
           players: await listTournamentPlayers(tournamentId),
           matches: await listMatches(tournamentId),
           formats: TOURNAMENT_FORMATS,
+          formatDefinitions: getFormatDefinitions(),
+          tournamentTypes: TOURNAMENT_TYPES,
         });
       }
-      return sendJson(res, 200, { tournaments: await listTournaments(), formats: TOURNAMENT_FORMATS });
+      return sendJson(res, 200, { tournaments: await listTournaments(), formats: TOURNAMENT_FORMATS, formatDefinitions: getFormatDefinitions(), tournamentTypes: TOURNAMENT_TYPES });
     }
 
     if (session.role !== 'admin') {
@@ -84,9 +86,7 @@ export default async function handler(req, res) {
       if (existing) return sendJson(res, 409, { error: 'A tournament with this ID already exists. Edit the existing draft or choose another name.' });
       const legacyImmediateCreate = body.legacyGenerateFixtures === true || body.status === 'published';
       if (legacyImmediateCreate) {
-        const draft = normalizedDraft(body, id);
-        const tournament = await createTournamentWithFixtures({ ...draft, status: body.status === 'draft' ? 'draft' : 'published' });
-        return sendJson(res, 201, { tournament, tournaments: await listTournaments(), formats: TOURNAMENT_FORMATS });
+        return sendJson(res, 409, { error: 'Immediate fixture creation is no longer supported. Create a draft, assign players, generate fixtures, preview, then publish.' });
       }
       const tournament = await saveTournamentDraft(normalizedDraft(body, id));
       return sendJson(res, 201, { tournament, tournaments: await listTournaments(), formats: TOURNAMENT_FORMATS });
@@ -115,6 +115,8 @@ export default async function handler(req, res) {
         if (new Set(labels).size !== labels.length || labels.some((label) => !/^(?:[1-9]|1\d|20|[A-T])$/.test(label))) {
           return sendJson(res, 400, { error: 'Player labels must be unique permanent labels: men 1-20 or women A-T.' });
         }
+        const rosterError = validateRosterForTournament(existing.tournamentType || 'mixed-doubles', body.players);
+        if (rosterError) return sendJson(res, 400, { error: rosterError });
         const players = await assignTournamentPlayers(tournamentId, body.players);
         if (!players) return sendJson(res, 409, { error: 'Players can only be assigned to a draft tournament.' });
         return sendJson(res, 200, { tournament: await getTournament(tournamentId), players });

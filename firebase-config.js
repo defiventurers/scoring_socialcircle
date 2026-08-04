@@ -14,6 +14,8 @@ window.addEventListener("DOMContentLoaded", () => {
   let builderTournament = null;
   let builderPlayers = [];
   let builderMatches = [];
+  let builderTournamentType = "mixed-doubles";
+  let formatDefinitions = {};
 
   const originalLoginSuccess = loginSuccess;
   const originalRenderActiveScoreboard = renderActiveScoreboard;
@@ -144,6 +146,7 @@ window.addEventListener("DOMContentLoaded", () => {
   async function loadActiveTournament() {
     const payload = await requestJson("/api/tournaments");
     const tournaments = payload.tournaments || [];
+    formatDefinitions = payload.formatDefinitions || formatDefinitions;
     activeTournament = tournaments.find((tournament) => tournament.status === "published") || null;
     const list = document.getElementById("admin-tournament-list");
     if (list && currentCourt === "admin") {
@@ -236,6 +239,7 @@ window.addEventListener("DOMContentLoaded", () => {
     try {
       await loadActiveTournament();
       if (!activeTournament) {
+        serverLeaderboard = [];
         applyServerMatches([]);
         isOnline = true;
         setOnlineStatus(true);
@@ -245,6 +249,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
       const payload = await requestJson(`/api/matches?tournamentId=${encodeURIComponent(activeTournament.id)}`);
       activeTournament = payload.tournament || activeTournament;
+      serverLeaderboard = Array.isArray(payload.leaderboard) ? payload.leaderboard : [];
       applyServerMatches(payload.matches);
       isOnline = true;
       setOnlineStatus(true);
@@ -320,6 +325,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
       if (payload.match) applySingleMatch(payload.match);
       if (payload.matches) applyServerMatches(payload.matches);
+      await syncMatchesFromServer({ initial: true });
 
       isOnline = true;
       setSavingState(false);
@@ -598,6 +604,8 @@ window.addEventListener("DOMContentLoaded", () => {
       builderTournament = payload.tournament;
       builderPlayers = payload.players || [];
       builderMatches = payload.matches || [];
+      builderTournamentType = builderTournament.tournamentType || "mixed-doubles";
+      formatDefinitions = payload.formatDefinitions || formatDefinitions;
       document.getElementById("builder-title").textContent = "Edit Draft Event";
       document.getElementById("builder-name").value = builderTournament.name;
       document.getElementById("builder-format").value = builderTournament.format;
@@ -606,7 +614,7 @@ window.addEventListener("DOMContentLoaded", () => {
       document.getElementById("builder-round-count").value = builderTournament.settings?.numberOfRounds || 20;
       document.getElementById("builder-location").value = builderTournament.location || "";
       document.getElementById("builder-date").value = builderTournament.date ? String(builderTournament.date).slice(0, 10) : "";
-      showBuilderStep(builderPlayers.length ? "players" : "config");
+      showBuilderStep(builderPlayers.length ? "players" : "details");
       if (builderPlayers.length) renderPlayerInputs("builder-player-grid", builderPlayers);
       switchTab("builder");
     } catch (error) { alert(error.message); }
@@ -629,20 +637,47 @@ window.addEventListener("DOMContentLoaded", () => {
     builderTournament = null;
     builderPlayers = [];
     builderMatches = [];
-    document.getElementById("builder-title").textContent = "Create Event";
+    builderTournamentType = "mixed-doubles";
+    document.getElementById("builder-title").textContent = "Create Tournament";
     document.getElementById("builder-name").value = "";
-    showBuilderStep("config");
+    const payload = await requestJson("/api/tournaments");
+    formatDefinitions = payload.formatDefinitions || {};
+    const select = document.getElementById("builder-format");
+    select.innerHTML = Object.values(formatDefinitions).map((format) => `<option value="${format.id}">${escapeHtml(format.name)}</option>`).join("");
+    showBuilderStep("type");
     switchTab("builder");
   };
 
+  selectTournamentType = function selectBuilderTournamentType(type) {
+    builderTournamentType = type;
+    showBuilderStep("format");
+    showFormatInformation();
+  };
+
+  showFormatInformation = function renderFormatInformation() {
+    const definition = formatDefinitions[document.getElementById("builder-format")?.value];
+    if (!definition) return;
+    document.getElementById("format-info-content").innerHTML = `
+      <p>${escapeHtml(definition.description)}</p>
+      <dl><dt>How it works</dt><dd>${escapeHtml(definition.howItWorks)}</dd><dt>Rotation / teams</dt><dd>${escapeHtml(definition.rotation)}</dd><dt>Winner</dt><dd>${escapeHtml(definition.winner)}</dd><dt>Best use</dt><dd>${escapeHtml(definition.bestUse)}</dd></dl>`;
+    document.getElementById("format-info-card").open = true;
+  };
+
+  confirmTournamentFormat = function confirmBuilderTournamentFormat() {
+    document.getElementById("format-info-card").open = false;
+    showBuilderStep("details");
+  };
+
   showBuilderStep = function showSharedBuilderStep(step) {
-    const mapping = { config: 0, players: 1, fixtures: 3, preview: 4 };
+    const mapping = { type: 0, format: 1, details: 2, players: 3, fixtures: 4, preview: 5 };
     document.querySelectorAll(".builder-step").forEach((element) => element.classList.remove("active"));
     document.getElementById(`builder-${step}-step`)?.classList.add("active");
     document.querySelectorAll("#builder-steps span").forEach((element, index) => element.classList.toggle("active", index <= (mapping[step] ?? 0)));
   };
 
   function permanentLabels(count) {
+    if (builderTournamentType === "mens-doubles") return Array.from({ length: Math.min(20, count) }, (_, index) => ({ label: String(index + 1), gender: "men" }));
+    if (builderTournamentType === "womens-doubles") return Array.from({ length: Math.min(20, count) }, (_, index) => ({ label: String.fromCharCode(65 + index), gender: "women" }));
     const menCount = Math.min(20, Math.floor(count / 2));
     const womenCount = Math.min(20, count - menCount);
     return [
@@ -669,6 +704,7 @@ window.addEventListener("DOMContentLoaded", () => {
     const body = {
       name,
       format: document.getElementById("builder-format").value,
+      tournamentType: builderTournamentType,
       maxPlayers: Number(document.getElementById("builder-player-count").value),
       numberOfCourts: Number(document.getElementById("builder-court-count").value),
       numberOfRounds: Number(document.getElementById("builder-round-count").value),

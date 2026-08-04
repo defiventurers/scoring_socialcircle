@@ -455,47 +455,42 @@
           <!-- ======================================== -->
           <div id="builder-panel" class="tab-panel">
             <div class="builder-shell">
-              <div class="builder-header">
-                <div>
-                  <div class="setup-eyebrow">Tournament Builder</div>
-                  <h3 id="builder-title">Create Event</h3>
-                </div>
-                <button class="btn btn-outline" onclick="switchTab('admin')">Back to Admin</button>
-              </div>
-              <div class="builder-steps" id="builder-steps">
-                <span class="active">1 Configure</span><span>2 Name Players</span><span>3 Assign</span><span>4 Fixtures</span><span>5 Preview</span><span>6 Publish</span>
-              </div>
+              <div class="builder-header"><div><div class="setup-eyebrow">Tournament Builder</div><h3 id="builder-title">Create Tournament</h3></div><button class="btn-inline-change" onclick="switchTab('admin')">Close</button></div>
+              <div class="builder-steps" id="builder-steps"><span class="active">Type</span><span>Format</span><span>Details</span><span>Players</span><span>Fixtures</span><span>Preview</span><span>Publish</span></div>
 
-              <section id="builder-config-step" class="builder-step active">
+              <section id="builder-type-step" class="builder-step active">
+                <h4>Choose tournament type</h4>
+                <div class="choice-stack">
+                  <button class="choice-card" onclick="selectTournamentType('mixed-doubles')"><strong>Mixed Doubles</strong><small>One man and one woman per team</small></button>
+                  <button class="choice-card" onclick="selectTournamentType('mens-doubles')"><strong>Men's Doubles</strong><small>Men's roster and teams</small></button>
+                  <button class="choice-card" onclick="selectTournamentType('womens-doubles')"><strong>Women's Doubles</strong><small>Women's roster and teams</small></button>
+                </div>
+              </section>
+
+              <section id="builder-format-step" class="builder-step">
+                <label class="setup-field"><span>Format</span><select id="builder-format" class="form-input" onchange="showFormatInformation()"></select></label>
+                <details id="format-info-card" class="format-info-card" open>
+                  <summary>About this format</summary>
+                  <div id="format-info-content"></div>
+                </details>
+                <button class="btn btn-primary" onclick="confirmTournamentFormat()">Use this format</button>
+              </section>
+
+              <section id="builder-details-step" class="builder-step">
                 <div class="setup-grid">
-                  <label class="setup-field"><span>Event name</span><input id="builder-name" class="form-input" placeholder="Summer Social" /></label>
-                  <label class="setup-field"><span>Format</span><select id="builder-format" class="form-input"><option value="mixed-americano">Mixed Americano</option><option value="americano">Americano</option><option value="mexicano">Mexicano</option><option value="round-robin">Round Robin</option><option value="custom">Custom</option></select></label>
-                  <label class="setup-field"><span>Players</span><input id="builder-player-count" class="form-input" type="number" min="4" max="40" value="40" /></label>
+                  <label class="setup-field"><span>Tournament name</span><input id="builder-name" class="form-input" placeholder="Summer Social" /></label>
+                  <label class="setup-field"><span>Players</span><input id="builder-player-count" class="form-input" type="number" min="4" max="40" value="16" /></label>
                   <label class="setup-field"><span>Courts</span><input id="builder-court-count" class="form-input" type="number" min="1" max="12" value="4" /></label>
-                  <label class="setup-field"><span>Rounds</span><input id="builder-round-count" class="form-input" type="number" min="1" max="100" value="20" /></label>
+                  <label class="setup-field"><span>Rounds</span><input id="builder-round-count" class="form-input" type="number" min="1" max="100" value="6" /></label>
                   <label class="setup-field"><span>Location</span><input id="builder-location" class="form-input" /></label>
                   <label class="setup-field"><span>Date</span><input id="builder-date" class="form-input" type="date" /></label>
                 </div>
-                <button class="btn btn-primary" onclick="saveTournamentConfiguration()">Save & Name Players</button>
+                <button class="btn btn-primary" onclick="saveTournamentConfiguration()">Continue to Players</button>
               </section>
 
-              <section id="builder-players-step" class="builder-step">
-                <p class="setup-note">Permanent labels never change. Enter optional display names; an empty name displays only the label.</p>
-                <div id="builder-player-grid" class="player-assignment-grid"></div>
-                <div class="builder-actions"><button class="btn btn-outline" onclick="showBuilderStep('config')">Back</button><button class="btn btn-primary" onclick="saveTournamentPlayers()">Save Players & Assign</button></div>
-              </section>
-
-              <section id="builder-fixtures-step" class="builder-step">
-                <div id="builder-assignment-summary" class="setup-note"></div>
-                <button class="btn btn-primary" onclick="generateBuilderFixtures()">Generate Fixtures</button>
-              </section>
-
-              <section id="builder-preview-step" class="builder-step">
-                <div id="builder-preview-summary" class="setup-note"></div>
-                <div id="builder-preview-list" class="fixture-preview"></div>
-                <div class="builder-actions"><button class="btn btn-outline" onclick="showBuilderStep('players')">Edit Players</button><button class="btn btn-primary" onclick="publishBuilderTournament()">Publish Event</button></div>
-              </section>
-
+              <section id="builder-players-step" class="builder-step"><p class="setup-note">Permanent labels never change. Display names are optional.</p><div id="builder-player-grid" class="player-assignment-grid"></div><button class="btn btn-primary" onclick="saveTournamentPlayers()">Assign Players</button></section>
+              <section id="builder-fixtures-step" class="builder-step"><div id="builder-assignment-summary" class="setup-note"></div><button class="btn btn-primary" onclick="generateBuilderFixtures()">Generate Fixtures</button></section>
+              <section id="builder-preview-step" class="builder-step"><div id="builder-preview-summary" class="setup-note"></div><div id="builder-preview-list" class="fixture-preview"></div><button class="btn btn-primary" onclick="publishBuilderTournament()">Publish Tournament</button></section>
               <div id="builder-message" class="setup-note hidden"></div>
             </div>
           </div>

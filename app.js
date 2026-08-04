@@ -8,6 +8,7 @@ let db = null;
 let currentCourt = null; // Integer 1-4, or "admin"
 let currentMatch = null; // Active match object
 let matchesCache = {};   // Map of matchId -> matchObject
+let serverLeaderboard = null;
 let firebaseEnabled = false;
 let activeTab = "score";
 let isOnline = false;
@@ -1239,6 +1240,10 @@ function toggleLeaderboardDetails() {
 }
 
 function renderLeaderboard() {
+  if (Array.isArray(serverLeaderboard)) {
+    renderServerLeaderboard(serverLeaderboard);
+    return;
+  }
   const container = document.getElementById("leaderboard-list-container");
   const emptyState = document.getElementById("leaderboard-empty-state");
   
@@ -1384,6 +1389,29 @@ function renderLeaderboard() {
       ${statsSection}
     `;
     
+    container.appendChild(card);
+  });
+}
+
+function renderServerLeaderboard(rows) {
+  const container = document.getElementById("leaderboard-list-container");
+  const emptyState = document.getElementById("leaderboard-empty-state");
+  if (!container) return;
+  container.innerHTML = "";
+  if (!rows.length) { emptyState?.classList.remove("hidden"); return; }
+  emptyState?.classList.add("hidden");
+  rows.forEach((row) => {
+    const games = Number(row.gamesPlayed || 0);
+    const card = document.createElement("div");
+    card.className = `player-rank-card ${row.rank === 1 ? "top-1" : row.rank === 2 ? "top-2" : row.rank === 3 ? "top-3" : ""}`;
+    card.style.flexDirection = "column";
+    card.style.alignItems = "stretch";
+    const label = row.player || row.team || "";
+    const format = activeTournament?.format || "";
+    const primaryPoints = format === "king-of-the-court" ? row.courtPoints || 0 : format === "ladder-league" ? row.ladderPosition || row.rank : format === "americano" || format === "mixed-americano" || format === "mexicano" || format === "custom" ? row.pointsScored || 0 : row.matchPoints || row.wins || 0;
+    const primaryLabel = format === "king-of-the-court" ? "COURT PTS" : format === "ladder-league" ? "POSITION" : format === "americano" || format === "mixed-americano" || format === "mexicano" || format === "custom" ? "PTS FOR" : "PTS";
+    const statsSection = leaderboardDetailed ? `<div class="player-stats-detail-grid"><div class="player-detail-stat"><span class="player-detail-stat-label">Games</span><span class="player-detail-stat-val">${games}</span></div><div class="player-detail-stat"><span class="player-detail-stat-label">Wins</span><span class="player-detail-stat-val">${row.wins || 0}</span></div><div class="player-detail-stat"><span class="player-detail-stat-label">Loss</span><span class="player-detail-stat-val">${row.losses || 0}</span></div><div class="player-detail-stat"><span class="player-detail-stat-label">For</span><span class="player-detail-stat-val">${row.pointsScored || 0}</span></div><div class="player-detail-stat"><span class="player-detail-stat-label">Agst</span><span class="player-detail-stat-val">${row.pointsConceded || 0}</span></div><div class="player-detail-stat"><span class="player-detail-stat-label">Diff</span><span class="player-detail-stat-val">${row.pointDifference || 0}</span></div></div>` : "";
+    card.innerHTML = `<div class="player-rank-left" style="display:flex; justify-content:space-between; align-items:center; width:100%;"><div style="display:flex; align-items:center; gap:12px;"><div class="rank-badge">${row.rank}</div><div class="player-rank-info"><div class="player-rank-name">${label}</div><div class="player-rank-stats-summary">${row.wins || 0}W – ${row.losses || 0}L (${games} Matches)</div></div></div><div class="player-rank-points-badge"><span>${primaryPoints}</span><span>${primaryLabel}</span></div></div>${statsSection}`;
     container.appendChild(card);
   });
 }
@@ -1551,6 +1579,9 @@ function openPlayersPage() {}
 function savePlayerDirectory() {}
 function editTournamentDraft() {}
 function archiveTournamentById() {}
+function selectTournamentType() {}
+function showFormatInformation() {}
+function confirmTournamentFormat() {}
 
 // 14. REPORT CSV EXPORT
 function downloadMatchesCSV() {
@@ -1583,71 +1614,26 @@ function downloadMatchesCSV() {
 }
 
 function downloadLeaderboardCSV() {
-  // Recompute
-  const playerStats = {};
-  
-  // Feed players list
-  for (let courtNum = 1; courtNum <= 4; courtNum++) {
-    const courtFixtures = window.FIXTURES[courtNum] || [];
-    courtFixtures.forEach((f) => {
-      [...f.teamA, ...f.teamB].forEach((pName) => {
-        const cleanName = pName.trim();
-        if (cleanName && !playerStats[cleanName]) {
-          playerStats[cleanName] = { name: cleanName, games: 0, wins: 0, losses: 0, pointsFor: 0, pointsAgainst: 0, pointDiff: 0 };
-        }
-      });
-    });
-  }
-  
-  const finalizedMatches = Object.values(matchesCache).filter(m => m.status === "finalized");
-  finalizedMatches.forEach((m) => {
-    const scoreA = m.teamAScore;
-    const scoreB = m.teamBScore;
-    const isWinA = scoreA > scoreB;
-    const isWinB = scoreB > scoreA;
-    
-    m.teamA.forEach((p) => {
-      const pName = p.trim();
-      if (!playerStats[pName]) return;
-      playerStats[pName].games += 1;
-      playerStats[pName].pointsFor += scoreA;
-      playerStats[pName].pointsAgainst += scoreB;
-      if (isWinA) playerStats[pName].wins += 1;
-      else if (isWinB) playerStats[pName].losses += 1;
-    });
-    
-    m.teamB.forEach((p) => {
-      const pName = p.trim();
-      if (!playerStats[pName]) return;
-      playerStats[pName].games += 1;
-      playerStats[pName].pointsFor += scoreB;
-      playerStats[pName].pointsAgainst += scoreA;
-      if (isWinB) playerStats[pName].wins += 1;
-      else if (isWinA) playerStats[pName].losses += 1;
-    });
-  });
-  
-  const arr = Object.values(playerStats);
-  arr.forEach(p => p.pointDiff = p.pointsFor - p.pointsAgainst);
-  arr.sort((a,b) => b.pointsFor - a.pointsFor || b.wins - a.wins || b.pointDiff - a.pointDiff || a.name.localeCompare(b.name));
-  
+  const rows = Array.isArray(serverLeaderboard) ? serverLeaderboard : [];
   let csvContent = "data:text/csv;charset=utf-8,";
-  csvContent += "Rank,Player Name,Games Played,Wins,Losses,Points For,Points Against,Point Difference\r\n";
-  
-  arr.forEach((p, idx) => {
-    const row = [
-      idx + 1,
-      `"${p.name}"`,
-      p.games,
-      p.wins,
-      p.losses,
-      p.pointsFor,
-      p.pointsAgainst,
-      p.pointDiff
+  csvContent += "Rank,Player or Team,Games Played,Wins,Losses,Points For,Points Against,Point Difference,Match Points,Buchholz,Strength of Schedule\r\n";
+  rows.forEach((row) => {
+    const label = row.player || row.team || "";
+    const csvRow = [
+      row.rank || "",
+      `"${String(label).replace(/"/g, '""')}"`,
+      row.gamesPlayed || 0,
+      row.wins || 0,
+      row.losses || 0,
+      row.pointsScored || 0,
+      row.pointsConceded || 0,
+      row.pointDifference || 0,
+      row.matchPoints || 0,
+      row.buchholz || 0,
+      row.strengthOfSchedule || 0,
     ].join(",");
-    csvContent += row + "\r\n";
+    csvContent += `${csvRow}\r\n`;
   });
-  
   triggerCSVDownload(csvContent, "pickleball_social_leaderboard.csv");
 }
 

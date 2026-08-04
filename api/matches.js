@@ -1,5 +1,5 @@
 import { getSessionFromRequest } from './_lib/auth.js';
-import { getPublishedTournament, getTournament, listMatches } from './_lib/db.js';
+import { appendAdaptiveFixtures, getPublishedTournament, getTournament, listMatches, getLeaderboard } from './_lib/db.js';
 import { methodNotAllowed, sendJson } from './_lib/http.js';
 
 export default async function handler(req, res) {
@@ -25,9 +25,11 @@ export default async function handler(req, res) {
       ? await getTournament(tournamentId)
       : await getPublishedTournament();
     if (!tournament) return sendJson(res, 404, { error: 'Tournament not found.' });
+    if (tournament.status === 'published') await appendAdaptiveFixtures(tournament.id);
     const matches = await listMatches(tournament.id);
     return sendJson(res, 200, {
       matches,
+      leaderboard: await getLeaderboard(tournament.id),
       tournament,
       serverTime: new Date().toISOString(),
     });

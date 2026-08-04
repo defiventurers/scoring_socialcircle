@@ -1,6 +1,6 @@
 import { neon } from '@neondatabase/serverless';
 import { EVENT_ID, FIXTURES } from './fixtures.js';
-import { TOURNAMENT_FORMATS, calculateLeaderboardForTournament } from './tournament-rules.js';
+import { TOURNAMENT_FORMATS, calculateLeaderboardForTournament, generateInitialFixtures, generateNextAdaptiveFixtures, getFormatDefinitions, validateRosterForTournament } from './tournament-rules.js';
 
 
 const DEFAULT_TOURNAMENT = {
@@ -8,6 +8,7 @@ const DEFAULT_TOURNAMENT = {
   name: 'The Social Circle Mixed Pickleball Social',
   format: 'mixed-americano',
   status: 'published',
+  tournamentType: 'mixed-doubles',
   date: null,
   location: null,
   numberOfCourts: 4,
@@ -99,6 +100,7 @@ async function initializeDatabase() {
 
   await sql`ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ`;
   await sql`ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS ended_by TEXT`;
+  await sql`ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS tournament_type TEXT NOT NULL DEFAULT 'mixed-doubles'`;
   await sql`
     CREATE TABLE IF NOT EXISTS matches (
       id TEXT PRIMARY KEY,
@@ -111,6 +113,7 @@ async function initializeDatabase() {
       scheduled_time TEXT NOT NULL,
       team_a JSONB NOT NULL,
       team_b JSONB NOT NULL,
+      metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
       winner TEXT,
       team_a_score INTEGER NOT NULL DEFAULT 0 CHECK (team_a_score >= 0),
       team_b_score INTEGER NOT NULL DEFAULT 0 CHECK (team_b_score >= 0),
@@ -129,6 +132,7 @@ async function initializeDatabase() {
   await sql`CREATE TABLE IF NOT EXISTS scores (id BIGSERIAL PRIMARY KEY, match_id TEXT NOT NULL REFERENCES matches(id) ON DELETE CASCADE, team_a_score INTEGER NOT NULL, team_b_score INTEGER NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
   await sql`ALTER TABLE matches ADD COLUMN IF NOT EXISTS tournament_id TEXT`;
   await sql`ALTER TABLE matches ADD COLUMN IF NOT EXISTS winner TEXT`;
+  await sql`ALTER TABLE matches ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::JSONB`;
 
   await sql`
     CREATE INDEX IF NOT EXISTS matches_event_court_round_idx
@@ -244,6 +248,7 @@ export async function listMatches(tournamentId = EVENT_ID) {
       scheduled_time AS "time",
       team_a AS "teamA",
       team_b AS "teamB",
+      metadata,
       team_a_score AS "teamAScore",
       team_b_score AS "teamBScore",
       status,
@@ -271,6 +276,7 @@ export async function getMatch(matchId, tournamentId = EVENT_ID) {
       scheduled_time AS "time",
       team_a AS "teamA",
       team_b AS "teamB",
+      metadata,
       team_a_score AS "teamAScore",
       team_b_score AS "teamBScore",
       status,
@@ -325,6 +331,7 @@ export async function listTournaments() {
       t.points_to_win AS "pointsToWin",
       t.win_by AS "winBy",
       t.max_players AS "maxPlayers",
+      t.tournament_type AS "tournamentType",
       t.settings,
       t.created_at AS "createdAt",
       t.updated_at AS "updatedAt",
@@ -406,11 +413,12 @@ export async function saveTournamentDraft(input) {
   const existing = await getTournament(input.id);
   if (existing && existing.status !== 'draft') return null;
   await sql`
-    INSERT INTO tournaments (id, name, format, status, date, location, number_of_courts, points_to_win, win_by, max_players, settings)
-    VALUES (${input.id}, ${input.name}, ${input.format}, 'draft', ${input.date || null}, ${input.location || null}, ${input.numberOfCourts}, ${input.pointsToWin}, ${input.winBy}, ${input.maxPlayers}, ${JSON.stringify(input.settings || {})}::JSONB)
+    INSERT INTO tournaments (id, name, format, status, tournament_type, date, location, number_of_courts, points_to_win, win_by, max_players, settings)
+    VALUES (${input.id}, ${input.name}, ${input.format}, 'draft', ${input.tournamentType}, ${input.date || null}, ${input.location || null}, ${input.numberOfCourts}, ${input.pointsToWin}, ${input.winBy}, ${input.maxPlayers}, ${JSON.stringify(input.settings || {})}::JSONB)
     ON CONFLICT (id) DO UPDATE SET
       name = EXCLUDED.name,
       format = EXCLUDED.format,
+      tournament_type = EXCLUDED.tournament_type,
       date = EXCLUDED.date,
       location = EXCLUDED.location,
       number_of_courts = EXCLUDED.number_of_courts,
@@ -428,47 +436,40 @@ export async function generateTournamentFixtures(tournamentId) {
   const sql = getSql();
   const tournament = await getTournament(tournamentId);
   if (!tournament || tournament.status !== 'draft') return null;
-  const assignedPlayers = await listTournamentPlayers(tournamentId);
-  if (assignedPlayers.length !== Number(tournament.maxPlayers) || assignedPlayers.length < 4) return null;
-  const settings = tournament.settings || {};
-  const totalMatches = Number(tournament.numberOfCourts) * Number(settings.numberOfRounds || 20);
-  if (!Number.isInteger(totalMatches) || totalMatches < 1 || totalMatches > 1200) return null;
-  const generatedMatches = createSeededMatches({
-    tournamentId,
-    numberOfCourts: tournament.numberOfCourts,
-    playerLabels: assignedPlayers.map((player) => player.label),
-    rounds: Number(settings.numberOfRounds || 20),
-    startHour: Number(settings.startHour || 11),
-    intervalMinutes: Number(settings.intervalMinutes || 8),
-  });
-  await sql`DELETE FROM rounds WHERE tournament_id = ${tournamentId}`;
-  await sql`DELETE FROM matches WHERE tournament_id = ${tournamentId}`;
-  await sql`DELETE FROM courts WHERE tournament_id = ${tournamentId}`;
-  await sql`INSERT INTO courts (tournament_id, court_number) SELECT ${tournamentId}, generate_series(1, ${tournament.numberOfCourts})`;
-  await sql`
-    INSERT INTO rounds (tournament_id, round_number, scheduled_time)
-    SELECT ${tournamentId}, round, MIN(scheduled_time)
-    FROM jsonb_to_recordset(${JSON.stringify(generatedMatches)}::JSONB) AS f(round INTEGER, scheduled_time TEXT)
-    GROUP BY round
-  `;
-  await sql`
-    INSERT INTO matches (id, event_id, tournament_id, court, round, scheduled_time, team_a, team_b)
-    SELECT id, event_id, tournament_id, court, round, scheduled_time, team_a, team_b
-    FROM jsonb_to_recordset(${JSON.stringify(generatedMatches)}::JSONB) AS fixture(
-      id TEXT, event_id TEXT, tournament_id TEXT, court INTEGER, round INTEGER,
-      scheduled_time TEXT, team_a JSONB, team_b JSONB
-    )
-  `;
+  const tournamentPlayers = await listTournamentPlayers(tournamentId);
+  const playerRecords = await listPlayers();
+  const byLabel = new Map(playerRecords.map((player) => [player.label, player]));
+  const roster = tournamentPlayers.map((player) => byLabel.get(player.label) || player);
+  const validation = validateRosterForTournament(tournament.tournamentType || 'mixed-doubles', roster);
+  if (validation) return null;
+  const generatedMatches = generateInitialFixtures(tournament, roster);
+  if (!generatedMatches.length || generatedMatches.length > 1200) return null;
   const matchPlayersPayload = JSON.stringify(generatedMatches.flatMap((match) => [
     ...match.team_a.map((label, index) => ({ matchId: match.id, label, team: 'A', position: index + 1 })),
     ...match.team_b.map((label, index) => ({ matchId: match.id, label, team: 'B', position: index + 1 })),
   ]));
-  await sql`
-    INSERT INTO match_players (match_id, player_id, team, position, label, display_name)
-    SELECT selected."matchId", p.id, selected.team, selected.position, p.label, p.display_name
-    FROM jsonb_to_recordset(${matchPlayersPayload}::JSONB) AS selected("matchId" TEXT, label TEXT, team TEXT, position INTEGER)
-    JOIN players p ON p.label = selected.label
-  `;
+  const fixturePayload = JSON.stringify(generatedMatches);
+  await sql.transaction((tx) => [
+    tx`SELECT pg_advisory_xact_lock(hashtext(${tournamentId}))`,
+    tx`DELETE FROM rounds WHERE tournament_id = ${tournamentId}`,
+    tx`DELETE FROM matches WHERE tournament_id = ${tournamentId}`,
+    tx`DELETE FROM courts WHERE tournament_id = ${tournamentId}`,
+    tx`INSERT INTO courts (tournament_id, court_number) SELECT ${tournamentId}, generate_series(1, ${tournament.numberOfCourts})`,
+    tx`INSERT INTO rounds (tournament_id, round_number, scheduled_time)
+       SELECT ${tournamentId}, round, MIN(scheduled_time)
+       FROM jsonb_to_recordset(${fixturePayload}::JSONB) AS f(round INTEGER, scheduled_time TEXT)
+       GROUP BY round`,
+    tx`INSERT INTO matches (id, event_id, tournament_id, court, round, scheduled_time, team_a, team_b, metadata)
+       SELECT id, event_id, tournament_id, court, round, scheduled_time, team_a, team_b, metadata
+       FROM jsonb_to_recordset(${fixturePayload}::JSONB) AS fixture(
+         id TEXT, event_id TEXT, tournament_id TEXT, court INTEGER, round INTEGER,
+         scheduled_time TEXT, team_a JSONB, team_b JSONB, metadata JSONB
+       )`,
+    tx`INSERT INTO match_players (match_id, player_id, team, position, label, display_name)
+       SELECT selected."matchId", p.id, selected.team, selected.position, p.label, p.display_name
+       FROM jsonb_to_recordset(${matchPlayersPayload}::JSONB) AS selected("matchId" TEXT, label TEXT, team TEXT, position INTEGER)
+       JOIN players p ON p.label = selected.label`,
+  ], { isolationLevel: 'Serializable' });
   return { tournament: await getTournament(tournamentId), matches: await listMatches(tournamentId) };
 }
 
@@ -489,6 +490,39 @@ export async function publishTournament(tournamentId) {
     RETURNING id
   `;
   return rows[0] ? getTournament(tournamentId) : null;
+}
+
+export async function appendAdaptiveFixtures(tournamentId) {
+  await ensureDatabase();
+  const tournament = await getTournament(tournamentId);
+  if (!tournament || tournament.status !== 'published') return [];
+  const roster = await listTournamentPlayers(tournamentId);
+  const latest = await listMatches(tournamentId);
+  const generated = generateNextAdaptiveFixtures(tournament, roster, latest);
+  if (!generated.length) return [];
+  const sql = getSql();
+  const matchPlayersPayload = JSON.stringify(generated.flatMap((match) => [
+    ...match.team_a.map((label, index) => ({ matchId: match.id, label, team: 'A', position: index + 1 })),
+    ...match.team_b.map((label, index) => ({ matchId: match.id, label, team: 'B', position: index + 1 })),
+  ]));
+  const payload = JSON.stringify(generated);
+  await sql.transaction((tx) => [
+    tx`SELECT pg_advisory_xact_lock(hashtext(${tournamentId}))`,
+    tx`INSERT INTO rounds (tournament_id, round_number, scheduled_time)
+       SELECT ${tournamentId}, round, MIN(scheduled_time)
+       FROM jsonb_to_recordset(${payload}::JSONB) AS f(round INTEGER, scheduled_time TEXT)
+       GROUP BY round ON CONFLICT DO NOTHING`,
+    tx`INSERT INTO matches (id, event_id, tournament_id, court, round, scheduled_time, team_a, team_b, metadata)
+       SELECT id, event_id, tournament_id, court, round, scheduled_time, team_a, team_b, metadata
+       FROM jsonb_to_recordset(${payload}::JSONB) AS fixture(id TEXT, event_id TEXT, tournament_id TEXT, court INTEGER, round INTEGER, scheduled_time TEXT, team_a JSONB, team_b JSONB, metadata JSONB)
+       ON CONFLICT (id) DO NOTHING`,
+    tx`INSERT INTO match_players (match_id, player_id, team, position, label, display_name)
+       SELECT selected."matchId", p.id, selected.team, selected.position, p.label, p.display_name
+       FROM jsonb_to_recordset(${matchPlayersPayload}::JSONB) AS selected("matchId" TEXT, label TEXT, team TEXT, position INTEGER)
+       JOIN players p ON p.label = selected.label
+       ON CONFLICT (match_id, team, position) DO UPDATE SET player_id = EXCLUDED.player_id, label = EXCLUDED.label, display_name = EXCLUDED.display_name`,
+  ], { isolationLevel: 'Serializable' });
+  return listMatches(tournamentId);
 }
 
 export async function endTournament(tournamentId) {
@@ -519,7 +553,9 @@ export async function listRounds(tournamentId = EVENT_ID) {
 export async function getLeaderboard(tournamentId = EVENT_ID) {
   const tournament = await getTournament(tournamentId);
   const matches = await listMatches(tournamentId);
-  return calculateLeaderboardForTournament(tournament, matches);
+  const roster = await listTournamentPlayers(tournamentId);
+  const fallbackRoster = roster.length ? roster : await listPlayers();
+  return calculateLeaderboardForTournament(tournament, matches, fallbackRoster);
 }
 
 function createSeededMatches({ tournamentId, numberOfCourts, playerLabels, rounds = 20, startHour = 11, intervalMinutes = 8 }) {
