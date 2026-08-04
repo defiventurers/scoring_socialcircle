@@ -1,6 +1,46 @@
 import { getSessionFromRequest } from './_lib/auth.js';
-import { createTournamentWithFixtures, endTournament, ensureDatabase, listTournaments, TOURNAMENT_FORMATS } from './_lib/db.js';
+import {
+  assignTournamentPlayers,
+  createTournamentWithFixtures,
+  endTournament,
+  ensureDatabase,
+  generateTournamentFixtures,
+  getTournament,
+  listMatches,
+  listTournamentPlayers,
+  listTournaments,
+  publishTournament,
+  saveTournamentDraft,
+  TOURNAMENT_FORMATS,
+} from './_lib/db.js';
 import { methodNotAllowed, parseJsonBody, sendJson } from './_lib/http.js';
+
+function tournamentIdFrom(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+function validTournamentId(value) {
+  return /^[a-z0-9]+(?:[a-z0-9_-]*[a-z0-9])?$/.test(value);
+}
+
+function normalizedDraft(body, id) {
+  const maxPlayers = Math.max(4, Math.min(40, Number(body.maxPlayers || body.numberOfPlayers || 4)));
+  return {
+    id,
+    name: String(body.name || '').trim(),
+    format: TOURNAMENT_FORMATS.includes(body.format) ? body.format : 'custom',
+    date: body.date || null,
+    location: String(body.location || '').trim() || null,
+    numberOfCourts: Math.max(1, Math.min(12, Number(body.numberOfCourts || 1))),
+    maxPlayers,
+    pointsToWin: Math.max(1, Number(body.pointsToWin || 15)),
+    winBy: Math.max(1, Number(body.winBy || 1)),
+    settings: {
+      ...(body.settings || {}),
+      numberOfRounds: Math.max(1, Math.min(100, Number(body.numberOfRounds || body.settings?.numberOfRounds || 20))),
+    },
+  };
+}
 
 export default async function handler(req, res) {
   let session;
@@ -10,48 +50,94 @@ export default async function handler(req, res) {
     console.error('Session configuration error:', error);
     return sendJson(res, 500, { error: 'Server authentication is not configured.' });
   }
-
   if (!session) return sendJson(res, 401, { error: 'Session expired. Sign in again.' });
 
   try {
     await ensureDatabase();
-    if (req.method === 'GET') return sendJson(res, 200, { tournaments: await listTournaments(), formats: TOURNAMENT_FORMATS });
+    if (req.method === 'GET') {
+      const tournamentId = String(req.query?.tournamentId || '');
+      if (tournamentId) {
+        if (session.role !== 'admin') return sendJson(res, 403, { error: 'Only administrators can preview a selected tournament.' });
+        const tournament = await getTournament(tournamentId);
+        if (!tournament) return sendJson(res, 404, { error: 'Tournament not found.' });
+        return sendJson(res, 200, {
+          tournament,
+          players: await listTournamentPlayers(tournamentId),
+          matches: await listMatches(tournamentId),
+          formats: TOURNAMENT_FORMATS,
+        });
+      }
+      return sendJson(res, 200, { tournaments: await listTournaments(), formats: TOURNAMENT_FORMATS });
+    }
+
+    if (session.role !== 'admin') {
+      return sendJson(res, 403, { error: 'Only administrators can manage tournaments.' });
+    }
+
+    const body = parseJsonBody(req);
+    if (!body) return sendJson(res, 400, { error: 'Invalid JSON body.' });
+
     if (req.method === 'POST') {
-      if (session.role !== 'admin') return sendJson(res, 403, { error: 'Only administrators can create tournaments.' });
-      const body = parseJsonBody(req);
-      const id = String(body.id || body.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-      if (!id || !body.name) return sendJson(res, 400, { error: 'Tournament name is required.' });
-      const format = TOURNAMENT_FORMATS.includes(body.format) ? body.format : 'custom';
-      const status = body.status === 'draft' ? 'draft' : 'published';
-      const tournament = await createTournamentWithFixtures({
-        id,
-        name: body.name,
-        format,
-        status,
-        date: body.date || null,
-        location: body.location || null,
-        numberOfCourts: body.numberOfCourts || body.number_of_courts || 1,
-        maxPlayers: body.maxPlayers || body.numberOfPlayers || body.number_of_players || 4,
-        pointsToWin: body.pointsToWin || body.points_to_win || 15,
-        winBy: body.winBy || body.win_by || 1,
-        settings: body.settings || {},
-      });
+      const id = tournamentIdFrom(body.id || body.name);
+      if (!id || !String(body.name || '').trim()) return sendJson(res, 400, { error: 'Tournament name is required.' });
+      const existing = await getTournament(id);
+      if (existing) return sendJson(res, 409, { error: 'A tournament with this ID already exists. Edit the existing draft or choose another name.' });
+      const legacyImmediateCreate = body.legacyGenerateFixtures === true || body.status === 'published';
+      if (legacyImmediateCreate) {
+        const draft = normalizedDraft(body, id);
+        const tournament = await createTournamentWithFixtures({ ...draft, status: body.status === 'draft' ? 'draft' : 'published' });
+        return sendJson(res, 201, { tournament, tournaments: await listTournaments(), formats: TOURNAMENT_FORMATS });
+      }
+      const tournament = await saveTournamentDraft(normalizedDraft(body, id));
       return sendJson(res, 201, { tournament, tournaments: await listTournaments(), formats: TOURNAMENT_FORMATS });
     }
+
     if (req.method === 'PATCH') {
-      if (session.role !== 'admin') return sendJson(res, 403, { error: 'Only administrators can end tournaments.' });
-      const body = parseJsonBody(req);
-      if (body.action !== 'end') return sendJson(res, 400, { error: 'Unsupported tournament action.' });
+      const action = String(body.action || 'update');
       const tournamentId = String(body.tournamentId || '');
-      if (!tournamentId) return sendJson(res, 400, { error: 'Tournament ID is required.' });
-      if (!/^[a-z0-9]+(?:[a-z0-9_-]*[a-z0-9])?$/.test(tournamentId)) return sendJson(res, 400, { error: 'Invalid tournament ID.' });
-      const existing = (await listTournaments()).find((tournament) => tournament.id === tournamentId);
+      if (!validTournamentId(tournamentId)) return sendJson(res, 400, { error: 'Valid tournament ID is required.' });
+      const existing = await getTournament(tournamentId);
       if (!existing) return sendJson(res, 404, { error: 'Tournament not found.' });
-      if (existing.status !== 'published') return sendJson(res, 409, { error: 'Tournament is not active or has already ended.' });
-      const tournament = await endTournament(tournamentId);
-      if (!tournament) return sendJson(res, 409, { error: 'Tournament changed before it could be ended. Refresh and try again.' });
-      return sendJson(res, 200, { tournament, tournaments: await listTournaments(), formats: TOURNAMENT_FORMATS });
+
+      if (action === 'update') {
+        if (existing.status !== 'draft') return sendJson(res, 409, { error: 'Only draft tournaments can be edited.' });
+        const tournament = await saveTournamentDraft(normalizedDraft({
+          ...existing,
+          ...body,
+          settings: { ...(existing.settings || {}), ...(body.settings || {}) },
+        }, tournamentId));
+        return sendJson(res, 200, { tournament, tournaments: await listTournaments() });
+      }
+      if (action === 'assignPlayers') {
+        if (!Array.isArray(body.players)) return sendJson(res, 400, { error: 'Players must be an array.' });
+        if (body.players.length !== Number(existing.maxPlayers)) return sendJson(res, 400, { error: `Assign exactly ${existing.maxPlayers} players.` });
+        const labels = body.players.map((player) => String(player.label || '').trim());
+        if (new Set(labels).size !== labels.length || labels.some((label) => !/^(?:[1-9]|1\d|20|[A-T])$/.test(label))) {
+          return sendJson(res, 400, { error: 'Player labels must be unique permanent labels: men 1-20 or women A-T.' });
+        }
+        const players = await assignTournamentPlayers(tournamentId, body.players);
+        if (!players) return sendJson(res, 409, { error: 'Players can only be assigned to a draft tournament.' });
+        return sendJson(res, 200, { tournament: await getTournament(tournamentId), players });
+      }
+      if (action === 'generateFixtures') {
+        const generated = await generateTournamentFixtures(tournamentId);
+        if (!generated) return sendJson(res, 409, { error: 'Assign the complete roster before generating fixtures. Draft schedules are capped at 1,200 matches.' });
+        return sendJson(res, 200, generated);
+      }
+      if (action === 'publish') {
+        const tournament = await publishTournament(tournamentId);
+        if (!tournament) return sendJson(res, 409, { error: 'Generate and preview fixtures before publishing this draft.' });
+        return sendJson(res, 200, { tournament, tournaments: await listTournaments() });
+      }
+      if (action === 'archive' || action === 'end') {
+        if (existing.status !== 'published') return sendJson(res, 409, { error: 'Tournament is not active or has already ended.' });
+        const tournament = await endTournament(tournamentId);
+        if (!tournament) return sendJson(res, 409, { error: 'Tournament changed before it could be archived.' });
+        return sendJson(res, 200, { tournament, tournaments: await listTournaments() });
+      }
+      return sendJson(res, 400, { error: 'Unsupported tournament action.' });
     }
+
     return methodNotAllowed(res, ['GET', 'POST', 'PATCH']);
   } catch (error) {
     console.error('Tournament API failed:', error);

@@ -11,6 +11,9 @@ window.addEventListener("DOMContentLoaded", () => {
   let syncInFlight = false;
   let writeInFlight = false;
   let activeTournament = null;
+  let builderTournament = null;
+  let builderPlayers = [];
+  let builderMatches = [];
 
   const originalLoginSuccess = loginSuccess;
   const originalRenderActiveScoreboard = renderActiveScoreboard;
@@ -129,9 +132,31 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
   async function loadActiveTournament() {
     const payload = await requestJson("/api/tournaments");
-    activeTournament = (payload.tournaments || []).find((tournament) => tournament.status === "published") || null;
+    const tournaments = payload.tournaments || [];
+    activeTournament = tournaments.find((tournament) => tournament.status === "published") || null;
+    const list = document.getElementById("admin-tournament-list");
+    if (list && currentCourt === "admin") {
+      list.innerHTML = tournaments.map((tournament) => `
+        <div class="fixture-preview-row">
+          <span><strong>${escapeHtml(tournament.name)}</strong><br><small>${escapeHtml(tournament.status)} · ${tournament.matchCount || 0} matches</small></span>
+          <span class="admin-table-actions">
+            ${tournament.status === "draft" ? `<button class="btn-table-action" onclick="editTournamentDraft('${tournament.id}')">Edit</button>` : ""}
+            ${tournament.status === "published" ? `<button class="btn-table-action danger" onclick="archiveTournamentById('${tournament.id}')">Archive</button>` : ""}
+          </span>
+        </div>
+      `).join("");
+    }
     renderCurrentEventStatus();
     return activeTournament;
   }
@@ -187,7 +212,7 @@ window.addEventListener("DOMContentLoaded", () => {
       const health = await requestJson("/api/health");
       isOnline = true;
       setOnlineStatus(true);
-      setDatabaseBadge(`Shared Postgres • ${health.matches || 0} matches`);
+      setDatabaseBadge("Shared Postgres");
     } catch (error) {
       isOnline = false;
       setOnlineStatus(false);
@@ -209,12 +234,12 @@ window.addEventListener("DOMContentLoaded", () => {
     if (initial) setConnectionLabel("CONNECTING", "saving");
 
     try {
-      if (initial || !activeTournament) await loadActiveTournament();
+      await loadActiveTournament();
       if (!activeTournament) {
         applyServerMatches([]);
         isOnline = true;
         setOnlineStatus(true);
-        setDatabaseBadge("Shared Postgres • No active event");
+        setDatabaseBadge("Shared Postgres • 0 matches");
         return true;
       }
 
@@ -223,9 +248,7 @@ window.addEventListener("DOMContentLoaded", () => {
       applyServerMatches(payload.matches);
       isOnline = true;
       setOnlineStatus(true);
-      setDatabaseBadge(activeTournament.status === "published"
-        ? "Shared Postgres • Live Sync"
-        : "Shared Postgres • Event ended");
+      setDatabaseBadge(`Shared Postgres • ${builderTournament ? builderMatches.length : (payload.matches || []).length} matches`);
       renderCurrentEventStatus();
       return true;
     } catch (error) {
@@ -340,6 +363,9 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!loaded) throw new Error("Could not load the shared match schedule.");
 
     originalLoginSuccess(payload.court, "postgres-session");
+    if (payload.role === "admin") {
+      setTimeout(() => openTournamentBuilder(), 0);
+    }
     startMatchSync();
     if (pinInput) pinInput.value = "";
     errorEl?.classList.add("hidden");
@@ -556,13 +582,167 @@ window.addEventListener("DOMContentLoaded", () => {
   };
 
   triggerTournamentReset = async function resetSharedTournament() {
-    if (!confirm("Reset all 80 matches to 0–0? This cannot be undone.")) return;
+    const totalMatches = Object.keys(matchesCache).length;
+    if (!confirm(`Reset all ${totalMatches} matches to 0–0? This cannot be undone.`)) return;
     try {
       await runMatchAction("resetAll");
       alert("All shared tournament scores were reset.");
     } catch (error) {
       alert(error.message);
     }
+  };
+
+  editTournamentDraft = async function editSharedTournamentDraft(tournamentId) {
+    try {
+      const payload = await requestJson(`/api/tournaments?tournamentId=${encodeURIComponent(tournamentId)}`);
+      builderTournament = payload.tournament;
+      builderPlayers = payload.players || [];
+      builderMatches = payload.matches || [];
+      document.getElementById("builder-title").textContent = "Edit Draft Event";
+      document.getElementById("builder-name").value = builderTournament.name;
+      document.getElementById("builder-format").value = builderTournament.format;
+      document.getElementById("builder-player-count").value = builderTournament.maxPlayers;
+      document.getElementById("builder-court-count").value = builderTournament.numberOfCourts;
+      document.getElementById("builder-round-count").value = builderTournament.settings?.numberOfRounds || 20;
+      document.getElementById("builder-location").value = builderTournament.location || "";
+      document.getElementById("builder-date").value = builderTournament.date ? String(builderTournament.date).slice(0, 10) : "";
+      showBuilderStep(builderPlayers.length ? "players" : "config");
+      if (builderPlayers.length) renderPlayerInputs("builder-player-grid", builderPlayers);
+      switchTab("builder");
+    } catch (error) { alert(error.message); }
+  };
+
+  archiveTournamentById = async function archiveSharedTournamentById(tournamentId) {
+    if (!confirm("Archive this published event? Scores and reports will remain available.")) return;
+    try {
+      await requestJson("/api/tournaments", { method: "PATCH", body: JSON.stringify({ action: "archive", tournamentId }) });
+      activeTournament = null;
+      currentMatch = null;
+      applyServerMatches([]);
+      await loadActiveTournament();
+      setDatabaseBadge("Shared Postgres • 0 matches");
+    } catch (error) { alert(error.message); }
+  };
+
+  openTournamentBuilder = async function openSharedTournamentBuilder() {
+    if (currentCourt !== "admin") return;
+    builderTournament = null;
+    builderPlayers = [];
+    builderMatches = [];
+    document.getElementById("builder-title").textContent = "Create Event";
+    document.getElementById("builder-name").value = "";
+    showBuilderStep("config");
+    switchTab("builder");
+  };
+
+  showBuilderStep = function showSharedBuilderStep(step) {
+    const mapping = { config: 0, players: 1, fixtures: 3, preview: 4 };
+    document.querySelectorAll(".builder-step").forEach((element) => element.classList.remove("active"));
+    document.getElementById(`builder-${step}-step`)?.classList.add("active");
+    document.querySelectorAll("#builder-steps span").forEach((element, index) => element.classList.toggle("active", index <= (mapping[step] ?? 0)));
+  };
+
+  function permanentLabels(count) {
+    const menCount = Math.min(20, Math.floor(count / 2));
+    const womenCount = Math.min(20, count - menCount);
+    return [
+      ...Array.from({ length: menCount }, (_, index) => ({ label: String(index + 1), gender: "men" })),
+      ...Array.from({ length: womenCount }, (_, index) => ({ label: String.fromCharCode(65 + index), gender: "women" })),
+    ];
+  }
+
+  function renderPlayerInputs(containerId, players) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = players.map((player) => `
+      <label class="player-assignment-card">
+        <span class="player-label-pill">${player.label}</span>
+        <span class="meta-label">${player.gender === "men" ? "Men" : "Women"}</span>
+        <input class="form-input player-display-name" data-label="${player.label}" data-gender="${player.gender}" value="${escapeHtml(player.displayName || "")}" placeholder="Display name (optional)" />
+      </label>
+    `).join("");
+  }
+
+  saveTournamentConfiguration = async function saveSharedTournamentConfiguration() {
+    const name = document.getElementById("builder-name").value.trim();
+    if (!name) return alert("Enter an event name.");
+    const body = {
+      name,
+      format: document.getElementById("builder-format").value,
+      maxPlayers: Number(document.getElementById("builder-player-count").value),
+      numberOfCourts: Number(document.getElementById("builder-court-count").value),
+      numberOfRounds: Number(document.getElementById("builder-round-count").value),
+      location: document.getElementById("builder-location").value,
+      date: document.getElementById("builder-date").value || null,
+      status: "draft",
+    };
+    try {
+      const requestBody = builderTournament
+        ? { ...body, action: "update", tournamentId: builderTournament.id }
+        : body;
+      const payload = await requestJson("/api/tournaments", { method: builderTournament ? "PATCH" : "POST", body: JSON.stringify(requestBody) });
+      builderTournament = payload.tournament;
+      const directory = await requestJson("/api/players");
+      const byLabel = new Map((directory.players || []).map((player) => [player.label, player]));
+      builderPlayers = permanentLabels(builderTournament.maxPlayers).map((player) => ({ ...player, displayName: byLabel.get(player.label)?.displayName || "" }));
+      renderPlayerInputs("builder-player-grid", builderPlayers);
+      showBuilderStep("players");
+    } catch (error) { alert(error.message); }
+  };
+
+  saveTournamentPlayers = async function saveSharedTournamentPlayers() {
+    if (!builderTournament) return;
+    builderPlayers = Array.from(document.querySelectorAll("#builder-player-grid .player-display-name")).map((input) => ({ label: input.dataset.label, gender: input.dataset.gender, displayName: input.value.trim() }));
+    try {
+      await requestJson("/api/tournaments", { method: "PATCH", body: JSON.stringify({ action: "assignPlayers", tournamentId: builderTournament.id, players: builderPlayers }) });
+      document.getElementById("builder-assignment-summary").textContent = `${builderPlayers.length} permanent labels assigned. Names are saved independently from fixture labels.`;
+      showBuilderStep("fixtures");
+    } catch (error) { alert(error.message); }
+  };
+
+  generateBuilderFixtures = async function generateSharedBuilderFixtures() {
+    if (!builderTournament) return;
+    try {
+      const payload = await requestJson("/api/tournaments", { method: "PATCH", body: JSON.stringify({ action: "generateFixtures", tournamentId: builderTournament.id }) });
+      builderTournament = payload.tournament;
+      builderMatches = payload.matches || [];
+      document.getElementById("builder-preview-summary").textContent = `${builderMatches.length} matches generated across ${builderTournament.numberOfCourts} courts.`;
+      document.getElementById("builder-preview-list").innerHTML = builderMatches.slice(0, 24).map((match) => `<div class="fixture-preview-row"><strong>R${match.round} · Court ${match.court}</strong><span>${match.teamA.join(" / ")} vs ${match.teamB.join(" / ")}</span></div>`).join("") + (builderMatches.length > 24 ? `<p class="setup-note">Showing first 24 of ${builderMatches.length} matches.</p>` : "");
+      setDatabaseBadge(`Shared Postgres • ${builderMatches.length} matches`);
+      showBuilderStep("preview");
+    } catch (error) { alert(error.message); }
+  };
+
+  publishBuilderTournament = async function publishSharedBuilderTournament() {
+    if (!builderTournament || !confirm(`Publish “${builderTournament.name}”? It will become the active scoring event.`)) return;
+    try {
+      const payload = await requestJson("/api/tournaments", { method: "PATCH", body: JSON.stringify({ action: "publish", tournamentId: builderTournament.id }) });
+      activeTournament = payload.tournament;
+      builderTournament = null;
+      await syncMatchesFromServer({ initial: true });
+      switchTab("admin");
+      alert("Event published. Court devices can now load its fixtures.");
+    } catch (error) { alert(error.message); }
+  };
+
+  openPlayersPage = async function openSharedPlayersPage() {
+    if (currentCourt !== "admin") return;
+    try {
+      const payload = await requestJson("/api/players");
+      const byLabel = new Map((payload.players || []).map((player) => [player.label, player]));
+      const players = permanentLabels(40).map((player) => ({ ...player, displayName: byLabel.get(player.label)?.displayName || "" }));
+      renderPlayerInputs("players-directory-grid", players);
+      switchTab("players");
+    } catch (error) { alert(error.message); }
+  };
+
+  savePlayerDirectory = async function saveSharedPlayerDirectory() {
+    const inputs = Array.from(document.querySelectorAll("#players-directory-grid .player-display-name"));
+    try {
+      const players = inputs.map((input) => ({ label: input.dataset.label, displayName: input.value.trim() }));
+      await requestJson("/api/players", { method: "POST", body: JSON.stringify({ players }) });
+      alert("Player names saved. Permanent labels and existing fixtures were not changed.");
+    } catch (error) { alert(error.message); }
   };
 
   triggerEndEvent = async function endSharedEvent() {
@@ -592,7 +772,7 @@ window.addEventListener("DOMContentLoaded", () => {
       pauseTimer();
       applyServerMatches([]);
       setSavingState(false);
-      setDatabaseBadge("Shared Postgres • Event archived");
+      setDatabaseBadge("Shared Postgres • 0 matches");
       alert(`“${payload.tournament.name}” has ended. Scores remain archived and the next event can now be created.`);
     } catch (error) {
       setSavingState(false, true);

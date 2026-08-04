@@ -402,6 +402,12 @@
               </div>
               
               <div class="admin-actions-bar">
+                <button id="btn-create-event" class="btn btn-primary" onclick="openTournamentBuilder()">
+                  <i data-lucide="plus-circle"></i> Create Event
+                </button>
+                <button class="btn-admin-action" onclick="openPlayersPage()">
+                  <i data-lucide="users" style="width: 14px; height: 14px;"></i> Players
+                </button>
                 <button class="btn-admin-action" onclick="downloadMatchesCSV()">
                   <i data-lucide="download" style="width: 14px; height: 14px;"></i> Matches CSV
                 </button>
@@ -419,6 +425,7 @@
               <div id="admin-event-status" class="setup-note" style="margin: 12px 0;">
                 Loading current event status…
               </div>
+              <div id="admin-tournament-list" class="fixture-preview"></div>
               
               <h4 style="margin-top: 12px; color: var(--primary-green);">All Matches Database Manager</h4>
               <div class="admin-table-container">
@@ -440,6 +447,68 @@
                 </table>
               </div>
               
+            </div>
+          </div>
+
+          <!-- ======================================== -->
+          <!-- F. ADMIN TOURNAMENT BUILDER -->
+          <!-- ======================================== -->
+          <div id="builder-panel" class="tab-panel">
+            <div class="builder-shell">
+              <div class="builder-header">
+                <div>
+                  <div class="setup-eyebrow">Tournament Builder</div>
+                  <h3 id="builder-title">Create Event</h3>
+                </div>
+                <button class="btn btn-outline" onclick="switchTab('admin')">Back to Admin</button>
+              </div>
+              <div class="builder-steps" id="builder-steps">
+                <span class="active">1 Configure</span><span>2 Name Players</span><span>3 Assign</span><span>4 Fixtures</span><span>5 Preview</span><span>6 Publish</span>
+              </div>
+
+              <section id="builder-config-step" class="builder-step active">
+                <div class="setup-grid">
+                  <label class="setup-field"><span>Event name</span><input id="builder-name" class="form-input" placeholder="Summer Social" /></label>
+                  <label class="setup-field"><span>Format</span><select id="builder-format" class="form-input"><option value="mixed-americano">Mixed Americano</option><option value="americano">Americano</option><option value="mexicano">Mexicano</option><option value="round-robin">Round Robin</option><option value="custom">Custom</option></select></label>
+                  <label class="setup-field"><span>Players</span><input id="builder-player-count" class="form-input" type="number" min="4" max="40" value="40" /></label>
+                  <label class="setup-field"><span>Courts</span><input id="builder-court-count" class="form-input" type="number" min="1" max="12" value="4" /></label>
+                  <label class="setup-field"><span>Rounds</span><input id="builder-round-count" class="form-input" type="number" min="1" max="100" value="20" /></label>
+                  <label class="setup-field"><span>Location</span><input id="builder-location" class="form-input" /></label>
+                  <label class="setup-field"><span>Date</span><input id="builder-date" class="form-input" type="date" /></label>
+                </div>
+                <button class="btn btn-primary" onclick="saveTournamentConfiguration()">Save & Name Players</button>
+              </section>
+
+              <section id="builder-players-step" class="builder-step">
+                <p class="setup-note">Permanent labels never change. Enter optional display names; an empty name displays only the label.</p>
+                <div id="builder-player-grid" class="player-assignment-grid"></div>
+                <div class="builder-actions"><button class="btn btn-outline" onclick="showBuilderStep('config')">Back</button><button class="btn btn-primary" onclick="saveTournamentPlayers()">Save Players & Assign</button></div>
+              </section>
+
+              <section id="builder-fixtures-step" class="builder-step">
+                <div id="builder-assignment-summary" class="setup-note"></div>
+                <button class="btn btn-primary" onclick="generateBuilderFixtures()">Generate Fixtures</button>
+              </section>
+
+              <section id="builder-preview-step" class="builder-step">
+                <div id="builder-preview-summary" class="setup-note"></div>
+                <div id="builder-preview-list" class="fixture-preview"></div>
+                <div class="builder-actions"><button class="btn btn-outline" onclick="showBuilderStep('players')">Edit Players</button><button class="btn btn-primary" onclick="publishBuilderTournament()">Publish Event</button></div>
+              </section>
+
+              <div id="builder-message" class="setup-note hidden"></div>
+            </div>
+          </div>
+
+          <!-- ======================================== -->
+          <!-- G. PLAYER DIRECTORY -->
+          <!-- ======================================== -->
+          <div id="players-panel" class="tab-panel">
+            <div class="builder-shell">
+              <div class="builder-header"><div><div class="setup-eyebrow">Players</div><h3>Permanent Player Directory</h3></div><button class="btn btn-outline" onclick="switchTab('admin')">Back to Admin</button></div>
+              <p class="setup-note">Labels 1-20 and A-T remain permanent. Display names can be updated without changing fixtures or labels.</p>
+              <div id="players-directory-grid" class="player-assignment-grid"></div>
+              <button class="btn btn-primary" onclick="savePlayerDirectory()">Save Player Names</button>
             </div>
           </div>
 

@@ -70,42 +70,6 @@ async function initializeDatabase() {
     )
   `;
 
-  await sql`CREATE TABLE IF NOT EXISTS event_settings (event_id TEXT PRIMARY KEY, initialized BOOLEAN NOT NULL DEFAULT FALSE, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
-  await sql`CREATE TABLE IF NOT EXISTS tournament_players (tournament_id TEXT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE, player_id BIGINT NOT NULL REFERENCES players(id) ON DELETE CASCADE, label TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', seed INTEGER, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (tournament_id, player_id))`;
-  await sql`CREATE TABLE IF NOT EXISTS courts (id BIGSERIAL PRIMARY KEY, tournament_id TEXT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE, court_number INTEGER NOT NULL, name TEXT, status TEXT NOT NULL DEFAULT 'active', UNIQUE (tournament_id, court_number))`;
-  await sql`CREATE TABLE IF NOT EXISTS rounds (id BIGSERIAL PRIMARY KEY, tournament_id TEXT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE, round_number INTEGER NOT NULL, scheduled_time TEXT, status TEXT NOT NULL DEFAULT 'scheduled', UNIQUE (tournament_id, round_number))`;
-  await sql`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
-  await sql`CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, data JSONB NOT NULL, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
-  await sql`CREATE TABLE IF NOT EXISTS statistics (player_id BIGINT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE, games_played INTEGER NOT NULL DEFAULT 0, wins INTEGER NOT NULL DEFAULT 0, losses INTEGER NOT NULL DEFAULT 0, draws INTEGER NOT NULL DEFAULT 0, points_scored INTEGER NOT NULL DEFAULT 0, points_conceded INTEGER NOT NULL DEFAULT 0, point_difference INTEGER NOT NULL DEFAULT 0, average_points NUMERIC NOT NULL DEFAULT 0, partner_history JSONB NOT NULL DEFAULT '{}'::JSONB, opponent_history JSONB NOT NULL DEFAULT '{}'::JSONB, court_history JSONB NOT NULL DEFAULT '{}'::JSONB, attendance JSONB NOT NULL DEFAULT '[]'::JSONB, streaks JSONB NOT NULL DEFAULT '{}'::JSONB, elo_rating NUMERIC NOT NULL DEFAULT 1000, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
-  await sql`CREATE TABLE IF NOT EXISTS leaderboards (tournament_id TEXT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE, player_id BIGINT REFERENCES players(id), rank INTEGER NOT NULL, stats JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (tournament_id, rank))`;
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS tournaments (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      format TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'archived')),
-      date DATE,
-      location TEXT,
-      number_of_courts INTEGER NOT NULL DEFAULT 1,
-      points_to_win INTEGER NOT NULL DEFAULT 15,
-      win_by INTEGER NOT NULL DEFAULT 1,
-      max_players INTEGER,
-      settings JSONB NOT NULL DEFAULT '{}'::JSONB,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await sql`CREATE TABLE IF NOT EXISTS event_settings (event_id TEXT PRIMARY KEY, initialized BOOLEAN NOT NULL DEFAULT FALSE, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
-  await sql`CREATE TABLE IF NOT EXISTS tournament_players (tournament_id TEXT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE, player_id BIGINT NOT NULL REFERENCES players(id) ON DELETE CASCADE, label TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', seed INTEGER, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (tournament_id, player_id))`;
-  await sql`CREATE TABLE IF NOT EXISTS courts (id BIGSERIAL PRIMARY KEY, tournament_id TEXT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE, court_number INTEGER NOT NULL, name TEXT, status TEXT NOT NULL DEFAULT 'active', UNIQUE (tournament_id, court_number))`;
-  await sql`CREATE TABLE IF NOT EXISTS rounds (id BIGSERIAL PRIMARY KEY, tournament_id TEXT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE, round_number INTEGER NOT NULL, scheduled_time TEXT, status TEXT NOT NULL DEFAULT 'scheduled', UNIQUE (tournament_id, round_number))`;
-  await sql`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
-  await sql`CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, data JSONB NOT NULL, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
-  await sql`CREATE TABLE IF NOT EXISTS statistics (player_id BIGINT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE, games_played INTEGER NOT NULL DEFAULT 0, wins INTEGER NOT NULL DEFAULT 0, losses INTEGER NOT NULL DEFAULT 0, draws INTEGER NOT NULL DEFAULT 0, points_scored INTEGER NOT NULL DEFAULT 0, points_conceded INTEGER NOT NULL DEFAULT 0, point_difference INTEGER NOT NULL DEFAULT 0, average_points NUMERIC NOT NULL DEFAULT 0, partner_history JSONB NOT NULL DEFAULT '{}'::JSONB, opponent_history JSONB NOT NULL DEFAULT '{}'::JSONB, court_history JSONB NOT NULL DEFAULT '{}'::JSONB, attendance JSONB NOT NULL DEFAULT '[]'::JSONB, streaks JSONB NOT NULL DEFAULT '{}'::JSONB, elo_rating NUMERIC NOT NULL DEFAULT 1000, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
-  await sql`CREATE TABLE IF NOT EXISTS leaderboards (tournament_id TEXT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE, player_id BIGINT REFERENCES players(id), rank INTEGER NOT NULL, stats JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (tournament_id, rank))`;
-
   await sql`
     CREATE TABLE IF NOT EXISTS tournaments (
       id TEXT PRIMARY KEY,
@@ -235,13 +199,7 @@ async function initializeDatabase() {
       team_a JSONB,
       team_b JSONB
     )
-    ON CONFLICT (id) DO UPDATE
-    SET
-      tournament_id = EXCLUDED.tournament_id,
-      scheduled_time = EXCLUDED.scheduled_time,
-      team_a = EXCLUDED.team_a,
-      team_b = EXCLUDED.team_b,
-      updated_at = NOW()
+    ON CONFLICT (id) DO NOTHING
   `;
 
   const matchPlayersPayload = JSON.stringify(
@@ -339,10 +297,44 @@ export async function listPlayers() {
   return sql`SELECT id, label, display_name AS "displayName", gender, status, photo_url AS "photoUrl", notes, created_at AS "createdAt", updated_at AS "updatedAt" FROM players ORDER BY label`;
 }
 
+export async function updatePlayers(updates) {
+  await ensureDatabase();
+  const sql = getSql();
+  for (const update of updates) {
+    await sql`
+      UPDATE players
+      SET display_name = ${String(update.displayName || '').trim() || null}, updated_at = NOW()
+      WHERE label = ${String(update.label || '').trim()}
+    `;
+  }
+  return listPlayers();
+}
+
 export async function listTournaments() {
   await ensureDatabase();
   const sql = getSql();
-  return sql`SELECT id, name, format, status, date, location, number_of_courts AS "numberOfCourts", points_to_win AS "pointsToWin", win_by AS "winBy", max_players AS "maxPlayers", settings, created_at AS "createdAt", updated_at AS "updatedAt", ended_at AS "endedAt", ended_by AS "endedBy" FROM tournaments ORDER BY created_at DESC`;
+  return sql`
+    SELECT
+      t.id,
+      t.name,
+      t.format,
+      t.status,
+      t.date,
+      t.location,
+      t.number_of_courts AS "numberOfCourts",
+      t.points_to_win AS "pointsToWin",
+      t.win_by AS "winBy",
+      t.max_players AS "maxPlayers",
+      t.settings,
+      t.created_at AS "createdAt",
+      t.updated_at AS "updatedAt",
+      t.ended_at AS "endedAt",
+      t.ended_by AS "endedBy",
+      (SELECT COUNT(*)::INTEGER FROM matches m WHERE m.tournament_id = t.id) AS "matchCount",
+      (SELECT COUNT(*)::INTEGER FROM tournament_players tp WHERE tp.tournament_id = t.id AND tp.status = 'active') AS "assignedPlayerCount"
+    FROM tournaments t
+    ORDER BY t.created_at DESC
+  `;
 }
 
 export async function getTournament(tournamentId = EVENT_ID) {
@@ -353,6 +345,150 @@ export async function getTournament(tournamentId = EVENT_ID) {
 export async function getPublishedTournament() {
   const tournaments = await listTournaments();
   return tournaments.find((t) => t.status === 'published') || null;
+}
+
+export async function listTournamentPlayers(tournamentId) {
+  await ensureDatabase();
+  const sql = getSql();
+  return sql`
+    SELECT
+      p.id,
+      p.label,
+      p.display_name AS "displayName",
+      p.gender,
+      tp.status,
+      tp.seed
+    FROM tournament_players tp
+    JOIN players p ON p.id = tp.player_id
+    WHERE tp.tournament_id = ${tournamentId}
+    ORDER BY tp.seed, p.label
+  `;
+}
+
+export async function assignTournamentPlayers(tournamentId, assignments) {
+  await ensureDatabase();
+  const sql = getSql();
+  const tournament = await getTournament(tournamentId);
+  if (!tournament || tournament.status !== 'draft') return null;
+
+  const normalized = assignments.map((assignment, index) => ({
+    label: String(assignment.label || '').trim(),
+    displayName: String(assignment.displayName || '').trim() || null,
+    gender: assignment.gender === 'men' || assignment.gender === 'women' ? assignment.gender : 'unknown',
+    seed: index + 1,
+  }));
+
+  for (const assignment of normalized) {
+    await sql`
+      INSERT INTO players (label, display_name, gender)
+      VALUES (${assignment.label}, ${assignment.displayName}, ${assignment.gender})
+      ON CONFLICT (label) DO UPDATE SET
+        display_name = EXCLUDED.display_name,
+        gender = EXCLUDED.gender,
+        updated_at = NOW()
+    `;
+  }
+
+  await sql`DELETE FROM tournament_players WHERE tournament_id = ${tournamentId}`;
+  const payload = JSON.stringify(normalized);
+  await sql`
+    INSERT INTO tournament_players (tournament_id, player_id, label, seed)
+    SELECT ${tournamentId}, p.id, selected.label, selected.seed
+    FROM jsonb_to_recordset(${payload}::JSONB) AS selected(label TEXT, "displayName" TEXT, gender TEXT, seed INTEGER)
+    JOIN players p ON p.label = selected.label
+  `;
+  return listTournamentPlayers(tournamentId);
+}
+
+export async function saveTournamentDraft(input) {
+  await ensureDatabase();
+  const sql = getSql();
+  const existing = await getTournament(input.id);
+  if (existing && existing.status !== 'draft') return null;
+  await sql`
+    INSERT INTO tournaments (id, name, format, status, date, location, number_of_courts, points_to_win, win_by, max_players, settings)
+    VALUES (${input.id}, ${input.name}, ${input.format}, 'draft', ${input.date || null}, ${input.location || null}, ${input.numberOfCourts}, ${input.pointsToWin}, ${input.winBy}, ${input.maxPlayers}, ${JSON.stringify(input.settings || {})}::JSONB)
+    ON CONFLICT (id) DO UPDATE SET
+      name = EXCLUDED.name,
+      format = EXCLUDED.format,
+      date = EXCLUDED.date,
+      location = EXCLUDED.location,
+      number_of_courts = EXCLUDED.number_of_courts,
+      points_to_win = EXCLUDED.points_to_win,
+      win_by = EXCLUDED.win_by,
+      max_players = EXCLUDED.max_players,
+      settings = EXCLUDED.settings,
+      updated_at = NOW()
+  `;
+  return getTournament(input.id);
+}
+
+export async function generateTournamentFixtures(tournamentId) {
+  await ensureDatabase();
+  const sql = getSql();
+  const tournament = await getTournament(tournamentId);
+  if (!tournament || tournament.status !== 'draft') return null;
+  const assignedPlayers = await listTournamentPlayers(tournamentId);
+  if (assignedPlayers.length !== Number(tournament.maxPlayers) || assignedPlayers.length < 4) return null;
+  const settings = tournament.settings || {};
+  const totalMatches = Number(tournament.numberOfCourts) * Number(settings.numberOfRounds || 20);
+  if (!Number.isInteger(totalMatches) || totalMatches < 1 || totalMatches > 1200) return null;
+  const generatedMatches = createSeededMatches({
+    tournamentId,
+    numberOfCourts: tournament.numberOfCourts,
+    playerLabels: assignedPlayers.map((player) => player.label),
+    rounds: Number(settings.numberOfRounds || 20),
+    startHour: Number(settings.startHour || 11),
+    intervalMinutes: Number(settings.intervalMinutes || 8),
+  });
+  await sql`DELETE FROM rounds WHERE tournament_id = ${tournamentId}`;
+  await sql`DELETE FROM matches WHERE tournament_id = ${tournamentId}`;
+  await sql`DELETE FROM courts WHERE tournament_id = ${tournamentId}`;
+  await sql`INSERT INTO courts (tournament_id, court_number) SELECT ${tournamentId}, generate_series(1, ${tournament.numberOfCourts})`;
+  await sql`
+    INSERT INTO rounds (tournament_id, round_number, scheduled_time)
+    SELECT ${tournamentId}, round, MIN(scheduled_time)
+    FROM jsonb_to_recordset(${JSON.stringify(generatedMatches)}::JSONB) AS f(round INTEGER, scheduled_time TEXT)
+    GROUP BY round
+  `;
+  await sql`
+    INSERT INTO matches (id, event_id, tournament_id, court, round, scheduled_time, team_a, team_b)
+    SELECT id, event_id, tournament_id, court, round, scheduled_time, team_a, team_b
+    FROM jsonb_to_recordset(${JSON.stringify(generatedMatches)}::JSONB) AS fixture(
+      id TEXT, event_id TEXT, tournament_id TEXT, court INTEGER, round INTEGER,
+      scheduled_time TEXT, team_a JSONB, team_b JSONB
+    )
+  `;
+  const matchPlayersPayload = JSON.stringify(generatedMatches.flatMap((match) => [
+    ...match.team_a.map((label, index) => ({ matchId: match.id, label, team: 'A', position: index + 1 })),
+    ...match.team_b.map((label, index) => ({ matchId: match.id, label, team: 'B', position: index + 1 })),
+  ]));
+  await sql`
+    INSERT INTO match_players (match_id, player_id, team, position, label, display_name)
+    SELECT selected."matchId", p.id, selected.team, selected.position, p.label, p.display_name
+    FROM jsonb_to_recordset(${matchPlayersPayload}::JSONB) AS selected("matchId" TEXT, label TEXT, team TEXT, position INTEGER)
+    JOIN players p ON p.label = selected.label
+  `;
+  return { tournament: await getTournament(tournamentId), matches: await listMatches(tournamentId) };
+}
+
+export async function publishTournament(tournamentId) {
+  await ensureDatabase();
+  const sql = getSql();
+  const tournament = await getTournament(tournamentId);
+  if (!tournament || tournament.status !== 'draft' || Number(tournament.matchCount) < 1) return null;
+  await sql`
+    UPDATE tournaments
+    SET status = 'archived', ended_at = NOW(), ended_by = 'admin', updated_at = NOW()
+    WHERE id <> ${tournamentId} AND status = 'published'
+  `;
+  const rows = await sql`
+    UPDATE tournaments
+    SET status = 'published', ended_at = NULL, ended_by = NULL, updated_at = NOW()
+    WHERE id = ${tournamentId} AND status = 'draft'
+    RETURNING id
+  `;
+  return rows[0] ? getTournament(tournamentId) : null;
 }
 
 export async function endTournament(tournamentId) {
@@ -398,8 +534,10 @@ function createSeededMatches({ tournamentId, numberOfCourts, playerLabels, round
     const scheduledTime = `${hour12}:${String(minute).padStart(2, '0')} ${suffix}`;
     for (let court = 1; court <= numberOfCourts; court += 1) {
       const offset = ((round - 1) * numberOfCourts * 4 + (court - 1) * 4) % labels.length;
-      const teamA = [labels[offset % labels.length], labels[(offset + 1) % labels.length]];
-      const teamB = [labels[(offset + 2) % labels.length], labels[(offset + 3) % labels.length]];
+      const selected = Array.from({ length: Math.min(4, labels.length) }, (_, index) => labels[(offset + index) % labels.length]);
+      if (new Set(selected).size < 4) throw new Error('At least four unique assigned players are required.');
+      const teamA = [selected[0], selected[1]];
+      const teamB = [selected[2], selected[3]];
       matches.push({
         id: `${tournamentId}_court${court}_round${round}`,
         event_id: tournamentId,
@@ -440,19 +578,12 @@ export async function createTournamentWithFixtures(input) {
   await sql`
       INSERT INTO tournaments (id, name, format, status, date, location, number_of_courts, points_to_win, win_by, max_players, settings)
       VALUES (${id}, ${input.name}, ${input.format}, ${input.status || 'draft'}, ${input.date || null}, ${input.location || null}, ${numberOfCourts}, ${pointsToWin}, ${winBy}, ${maxPlayers}, ${JSON.stringify(settings)}::JSONB)
-      ON CONFLICT (id) DO UPDATE SET
-        name = EXCLUDED.name,
-        format = EXCLUDED.format,
-        status = EXCLUDED.status,
-        date = EXCLUDED.date,
-        location = EXCLUDED.location,
-        number_of_courts = EXCLUDED.number_of_courts,
-        points_to_win = EXCLUDED.points_to_win,
-        win_by = EXCLUDED.win_by,
-        max_players = EXCLUDED.max_players,
-        settings = EXCLUDED.settings,
-        updated_at = NOW()
+      ON CONFLICT (id) DO NOTHING
+      RETURNING id
     `;
+
+  const created = await getTournament(id);
+  if (!created || created.name !== input.name || Number(created.matchCount) > 0) return null;
 
   // There can only be one live event. Preserve completed events and their
   // scores, but archive them when a different event is published.

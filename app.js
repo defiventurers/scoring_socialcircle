@@ -1539,6 +1539,19 @@ function triggerEndEvent() {
   alert("Ending an event requires the shared Postgres server connection.");
 }
 
+function openTournamentBuilder() {
+  alert("Tournament Builder requires the shared Postgres server connection.");
+}
+function showBuilderStep() {}
+function saveTournamentConfiguration() {}
+function saveTournamentPlayers() {}
+function generateBuilderFixtures() {}
+function publishBuilderTournament() {}
+function openPlayersPage() {}
+function savePlayerDirectory() {}
+function editTournamentDraft() {}
+function archiveTournamentById() {}
+
 // 14. REPORT CSV EXPORT
 function downloadMatchesCSV() {
   const matches = Object.values(matchesCache);

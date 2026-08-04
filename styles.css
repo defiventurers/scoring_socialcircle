@@ -1487,3 +1487,17 @@ header {
 .touch-action-manipulation {
   touch-action: manipulation;
 }
+
+.builder-shell { max-width: 1080px; margin: 0 auto; padding: 20px; }
+.builder-header, .builder-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.builder-steps { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
+.builder-steps span { padding: 7px 10px; border-radius: 999px; background: var(--bg-cream); color: var(--text-muted); font-size: 11px; font-weight: 700; }
+.builder-steps span.active { background: var(--primary-green); color: white; }
+.builder-step { display: none; }
+.builder-step.active { display: block; }
+.player-assignment-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin: 16px 0 22px; }
+.player-assignment-card { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 6px 10px; padding: 12px; border: 1px solid var(--border-color); border-radius: 10px; background: white; }
+.player-assignment-card .form-input { grid-column: 1 / -1; }
+.player-label-pill { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; height: 36px; border-radius: 50%; background: var(--primary-green); color: white; font-family: var(--font-display); font-weight: 700; }
+.fixture-preview { display: grid; gap: 8px; margin: 16px 0 22px; max-height: 440px; overflow: auto; }
+.fixture-preview-row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; background: white; font-size: 13px; }

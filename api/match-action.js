@@ -80,6 +80,7 @@ export default async function handler(req, res) {
           version = version + 1,
           updated_at = NOW()
         WHERE tournament_id = ${tournamentId}
+          AND EXISTS (SELECT 1 FROM tournaments WHERE id = ${tournamentId} AND status = 'published')
       `;
 
       return sendJson(res, 200, { matches: await listMatches(tournamentId) });
@@ -132,6 +133,7 @@ export default async function handler(req, res) {
             version = version + 1,
             updated_at = NOW()
           WHERE tournament_id = ${tournamentId}
+          AND EXISTS (SELECT 1 FROM tournaments WHERE id = ${tournamentId} AND status = 'published')
             AND id = ${matchId}
             AND version = ${expectedVersion}
             AND status <> 'finalized'
@@ -169,6 +171,7 @@ export default async function handler(req, res) {
             version = version + 1,
             updated_at = NOW()
           WHERE tournament_id = ${tournamentId}
+          AND EXISTS (SELECT 1 FROM tournaments WHERE id = ${tournamentId} AND status = 'published')
             AND id = ${matchId}
             AND version = ${expectedVersion}
             AND status <> 'finalized'
@@ -215,6 +218,7 @@ export default async function handler(req, res) {
             version = version + 1,
             updated_at = NOW()
           WHERE tournament_id = ${tournamentId}
+          AND EXISTS (SELECT 1 FROM tournaments WHERE id = ${tournamentId} AND status = 'published')
             AND id = ${matchId}
             AND version = ${expectedVersion}
             AND status <> 'finalized'
@@ -254,6 +258,7 @@ export default async function handler(req, res) {
             version = version + 1,
             updated_at = NOW()
           WHERE tournament_id = ${tournamentId}
+          AND EXISTS (SELECT 1 FROM tournaments WHERE id = ${tournamentId} AND status = 'published')
             AND id = ${matchId}
             AND version = ${expectedVersion}
             AND status <> 'finalized'
@@ -282,6 +287,7 @@ export default async function handler(req, res) {
             version = version + 1,
             updated_at = NOW()
           WHERE tournament_id = ${tournamentId}
+          AND EXISTS (SELECT 1 FROM tournaments WHERE id = ${tournamentId} AND status = 'published')
             AND id = ${matchId}
             AND version = ${expectedVersion}
           RETURNING id
@@ -312,6 +318,7 @@ export default async function handler(req, res) {
             version = version + 1,
             updated_at = NOW()
           WHERE tournament_id = ${tournamentId}
+          AND EXISTS (SELECT 1 FROM tournaments WHERE id = ${tournamentId} AND status = 'published')
             AND id = ${matchId}
             AND version = ${expectedVersion}
           RETURNING id
