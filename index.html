@@ -20,131 +20,50 @@
   <body>
     <div id="app-container">
       
-      <!-- --- CONNECTION STATUS BAR --- -->
-      <div id="connection-bar">
+      <!-- Technical status remains available for development diagnostics. -->
+      <div id="connection-bar" aria-live="polite">
         <div class="status-indicator">
           <div id="connection-dot" class="status-dot offline"></div>
           <span id="connection-text">Connecting...</span>
         </div>
-        <div id="firebase-mode-badge" class="font-mono text-xs" style="color: var(--gold-accent);">
-          Local Demo Mode
-        </div>
+        <div id="firebase-mode-badge" class="font-mono text-xs">Local Demo Mode</div>
       </div>
 
-      <!-- ============================================ -->
-      <!-- 1. LOGIN / COURT SELECTION SCREEN -->
-      <!-- ============================================ -->
-      <div id="login-screen" class="screen">
-        <div class="login-header">
-          <h1>The Social Circle</h1>
-          <p>Mixed Pickleball Social</p>
+      <main id="home-screen" class="screen home-screen">
+        <div class="home-actions" aria-label="Choose a workflow">
+          <button class="home-action home-action-primary" onclick="startCreateTournamentFlow()"><i data-lucide="plus-circle"></i><span>Create Tournament</span><i data-lucide="chevron-right"></i></button>
+          <button class="home-action" onclick="startRefereeFlow()"><i data-lucide="clipboard-pen-line"></i><span>Score / Referee Tournament</span><i data-lucide="chevron-right"></i></button>
+          <button class="home-action" onclick="startAdminFlow()"><i data-lucide="shield-check"></i><span>Admin Access</span><i data-lucide="chevron-right"></i></button>
         </div>
-        
-        <div class="login-content">
-          <!-- Step 1: Select Court -->
-          <div id="login-step-court">
-            <section class="tournament-setup-card" aria-labelledby="tournament-setup-title">
-              <div class="setup-eyebrow">Tournament Setup</div>
-              <h3 id="tournament-setup-title">Choose format and player count first</h3>
-              <p>These controls mirror the new database-driven tournament builder. The current published event defaults to Mixed Americano with permanent player labels.</p>
+      </main>
 
-              <div class="setup-grid">
-                <label class="setup-field" for="setup-format-select">
-                  <span>Format</span>
-                  <select id="setup-format-select" class="form-input">
-                    <option value="mixed-americano" selected>Mixed Americano</option>
-                    <option value="americano">Americano</option>
-                    <option value="mexicano">Mexicano</option>
-                    <option value="round-robin">Round Robin</option>
-                    <option value="king-of-the-court">King of the Court</option>
-                    <option value="ladder-league">Ladder League</option>
-                    <option value="pool-play">Pool Play</option>
-                    <option value="single-elimination">Single Elimination</option>
-                    <option value="double-elimination">Double Elimination</option>
-                    <option value="swiss">Swiss</option>
-                    <option value="custom">Custom</option>
-                  </select>
-                </label>
-
-                <label class="setup-field" for="setup-player-count">
-                  <span>Players</span>
-                  <input id="setup-player-count" class="form-input" type="number" min="4" max="40" step="4" value="40" />
-                </label>
-
-                <label class="setup-field" for="setup-court-count">
-                  <span>Courts</span>
-                  <input id="setup-court-count" class="form-input" type="number" min="1" max="12" value="4" />
-                </label>
-              </div>
-
-              <div class="setup-note">
-                Only an authenticated admin can create or publish an event. Court referees load the published event for their assigned court after login.
-              </div>
-              <button class="btn btn-primary setup-admin-btn" onclick="tryAdminLoginDirect()">
-                <i data-lucide="shield"></i> Admin Login to Create Event
-              </button>
-            </section>
-
-            <h3 class="login-step-title">Select Your Assigned Court</h3>
-            <div class="court-grid">
-              <div class="court-card" onclick="selectCourt(1)">
-                <span class="number">1</span>
-                <span class="label">Court</span>
-              </div>
-              <div class="court-card" onclick="selectCourt(2)">
-                <span class="number">2</span>
-                <span class="label">Court</span>
-              </div>
-              <div class="court-card" onclick="selectCourt(3)">
-                <span class="number">3</span>
-                <span class="label">Court</span>
-              </div>
-              <div class="court-card" onclick="selectCourt(4)">
-                <span class="number">4</span>
-                <span class="label">Court</span>
-              </div>
-            </div>
-            
-            <div style="margin-top: 24px; text-align: center;">
-              <button class="btn btn-outline" style="width: 100%; min-height: 48px;" onclick="tryAdminLoginDirect()">
-                <i data-lucide="shield"></i> Admin Access
-              </button>
-            </div>
-          </div>
-          
-          <!-- Step 2: Enter Court PIN -->
-          <div id="login-step-pin" class="hidden">
-            <h3 class="login-step-title">Security Authentication</h3>
-            
+      <div id="login-screen" class="screen hidden">
+        <header class="workflow-header">
+          <button class="icon-btn icon-btn-inverse" onclick="goBackInWorkflow()" aria-label="Go back"><i data-lucide="arrow-left"></i></button>
+          <div class="header-title-area"><h2 id="login-workflow-title">Score Tournament</h2><span class="header-subtitle" id="login-workflow-subtitle">Choose a tournament</span></div>
+          <span class="header-spacer" aria-hidden="true"></span>
+        </header>
+        <div class="login-content workflow-content">
+          <section id="login-step-tournament">
+            <div class="section-heading"><div class="setup-eyebrow">Tournament</div><h3>Select an active tournament</h3></div>
+            <div id="tournament-selection-list" class="selection-list" aria-live="polite"><div class="empty-state">Loading tournaments...</div></div>
+          </section>
+          <section id="login-step-court" class="hidden">
+            <div class="section-heading"><div class="setup-eyebrow">Court</div><h3>Select your assigned court</h3></div>
+            <div class="court-grid" id="court-selection-grid"></div>
+          </section>
+          <section id="login-step-pin" class="hidden">
+            <div class="section-heading"><div class="setup-eyebrow">Authentication</div><h3 id="login-auth-title">Enter referee PIN</h3></div>
             <div class="pin-form-container">
-              <div class="selected-court-banner">
-                <span class="selected-court-text" id="selected-court-title">Court 1 Assigned</span>
-                <button class="btn-inline-change" onclick="goBackToCourts()">Change</button>
-              </div>
-              
+              <div class="selected-court-banner"><span class="selected-court-text" id="selected-court-title">Court 1 Assigned</span></div>
               <div class="form-group">
-                <label class="form-label" for="court-pin-input">Enter Court PIN</label>
-                <input 
-                  type="password" 
-                  id="court-pin-input" 
-                  class="form-input" 
-                  placeholder="••••"
-                  inputmode="numeric" 
-                  pattern="[0-9]*" 
-                  maxlength="4"
-                  autocomplete="one-time-code"
-                />
+                <label class="form-label" for="court-pin-input">Access PIN</label>
+                <input type="password" id="court-pin-input" class="form-input" placeholder="••••" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="one-time-code" />
               </div>
-              
-              <div id="login-error" style="color: var(--danger); font-size: 13px; text-align: center; font-weight: 600;" class="hidden">
-                Invalid PIN. Please try again.
-              </div>
-              
-              <button class="btn btn-primary" onclick="submitPinLogin()">
-                <i data-lucide="lock"></i> Authenticate Referee
-              </button>
+              <div id="login-error" class="form-error hidden" role="alert">Invalid PIN. Please try again.</div>
+              <button id="btn-submit-login" class="btn btn-primary" onclick="submitPinLogin()"><i data-lucide="lock"></i> Authenticate Referee</button>
             </div>
-          </div>
+          </section>
         </div>
       </div>
 
@@ -153,24 +72,14 @@
       <!-- ============================================ -->
       <div id="dashboard-screen" class="screen hidden">
         
-        <!-- Header -->
-        <header>
+        <header class="workflow-header app-workflow-header">
+          <button id="workflow-back-button" class="icon-btn icon-btn-inverse" onclick="goBackInWorkflow()" aria-label="Go back"><i data-lucide="arrow-left"></i></button>
           <div class="header-title-area">
             <h2 id="referee-court-title">COURT 1 REFEREE</h2>
-            <span class="header-subtitle" id="referee-round-title">ROUND 1 OF 20</span>
+            <span class="header-subtitle" id="referee-round-title">MATCH QUEUE</span>
           </div>
-          
-          <!-- Desktop navigation links (Visible only on 900px+ width) -->
-          <div class="desktop-nav">
-            <button class="desktop-nav-btn active" onclick="switchTab('score')">Score</button>
-            <button class="desktop-nav-btn" onclick="switchTab('matches')">Matches</button>
-            <button class="desktop-nav-btn" onclick="switchTab('leaderboard')">Leaderboard</button>
-            <button class="desktop-nav-btn" onclick="switchTab('rules')">Rules</button>
-            <button id="desktop-admin-nav" class="desktop-nav-btn hidden" onclick="switchTab('admin')">Admin</button>
-          </div>
-          
           <div class="header-actions">
-            <button class="btn-logout" onclick="logoutSession()">Logout</button>
+            <button class="icon-btn icon-btn-inverse" onclick="logoutSession()" aria-label="Log out"><i data-lucide="log-out"></i></button>
           </div>
         </header>
 
@@ -180,7 +89,7 @@
           <!-- ======================================== -->
           <!-- A. TAB: SCORE ENTRY PANEL -->
           <!-- ======================================== -->
-          <div id="score-panel" class="tab-panel active">
+          <div id="score-panel" class="tab-panel">
             
             <!-- Match Status & Meta Bar -->
             <div class="match-meta-bar">
@@ -248,9 +157,9 @@
               <div class="timer-header"><div><div class="meta-label" id="match-timer-label">Match countdown</div><small id="match-timer-mode">Starts with the first point</small></div><button id="btn-voice-toggle" class="btn-toggle-voice active" onclick="toggleVoicePreference()">Voice ON</button></div>
               <div class="timer-display" id="match-timer-val">08:00</div>
               <div class="timer-buttons">
-                <button class="btn-timer-icon" onclick="startTimer()"><i data-lucide="play" style="width: 16px; height: 16px; color: var(--success);"></i></button>
-                <button class="btn-timer-icon" onclick="pauseTimer()"><i data-lucide="pause" style="width: 16px; height: 16px; color: var(--warning);"></i></button>
-                <button class="btn-timer-icon" onclick="resetTimer()"><i data-lucide="rotate-ccw" style="width: 16px; height: 16px; color: var(--text-muted);"></i></button>
+                <button class="btn-timer-icon" onclick="startTimer()" aria-label="Start match timer"><i data-lucide="play" style="width: 16px; height: 16px; color: var(--success);"></i></button>
+                <button class="btn-timer-icon" onclick="pauseTimer()" aria-label="Pause match timer"><i data-lucide="pause" style="width: 16px; height: 16px; color: var(--warning);"></i></button>
+                <button class="btn-timer-icon" onclick="resetTimer()" aria-label="Reset match timer"><i data-lucide="rotate-ccw" style="width: 16px; height: 16px; color: var(--text-muted);"></i></button>
               </div>
             </div>
 
@@ -283,7 +192,11 @@
           <!-- ======================================== -->
           <!-- B. TAB: MATCHES LIST -->
           <!-- ======================================== -->
-          <div id="matches-panel" class="tab-panel">
+          <div id="matches-panel" class="tab-panel active">
+            <div class="panel-heading">
+              <div><div class="setup-eyebrow">Referee</div><h3>Match Queue</h3></div>
+              <span id="queue-court-label" class="status-chip">Court</span>
+            </div>
             <div class="matches-filter-bar">
               <button class="match-filter-tab active" id="m-filter-all" onclick="filterMatches('all')">All Rounds</button>
               <button class="match-filter-tab" id="m-filter-pending" onclick="filterMatches('pending')">Active/Upcoming</button>
@@ -378,18 +291,22 @@
           <div id="admin-panel" class="tab-panel">
             <div class="admin-grid">
               
-              <div class="admin-summary-cards">
-                <div class="admin-stat-card">
-                  <div class="admin-stat-num" id="admin-stat-completed">0</div>
-                  <div class="admin-stat-label">Finalized Matches</div>
+              <section class="dashboard-card tournament-dashboard-card">
+                <div class="dashboard-card-header">
+                  <div><div class="setup-eyebrow">Tournament</div><h3 id="admin-current-event-name">Current Tournament</h3></div>
+                  <span id="admin-current-event-status" class="status-chip">Loading</span>
                 </div>
-                <div class="admin-stat-card">
-                  <div class="admin-stat-num" id="admin-stat-active">0</div>
-                  <div class="admin-stat-label">Active Courts</div>
+                <div class="admin-summary-cards">
+                  <div class="admin-stat-card"><div class="admin-stat-num" id="admin-stat-completed">0</div><div class="admin-stat-label">Completed</div></div>
+                  <div class="admin-stat-card"><div class="admin-stat-num" id="admin-stat-active">0</div><div class="admin-stat-label">Active Courts</div></div>
+                  <div class="admin-stat-card"><div class="admin-stat-num" id="admin-stat-total">0</div><div class="admin-stat-label">Total Matches</div></div>
                 </div>
-              </div>
-              
-              <div class="admin-actions-bar">
+                <button id="btn-continue-tournament" class="btn btn-primary" onclick="openAdminMatchManager()"><i data-lucide="play"></i> Continue Tournament</button>
+              </section>
+
+              <section class="dashboard-card">
+                <div class="dashboard-card-header"><div><div class="setup-eyebrow">Manage</div><h3>Tournament tools</h3></div></div>
+                <div class="admin-actions-bar">
                 <button id="btn-create-event" class="btn btn-primary" onclick="openTournamentBuilder()">
                   <i data-lucide="plus-circle"></i> Create Event
                 </button>
@@ -408,15 +325,17 @@
                 <button id="btn-end-event" class="btn-admin-action" style="color: var(--danger); border-color: var(--danger);" onclick="triggerEndEvent()">
                   <i data-lucide="archive" style="width: 14px; height: 14px;"></i> End Event
                 </button>
-              </div>
+                </div>
+              </section>
 
               <div id="admin-event-status" class="setup-note" style="margin: 12px 0;">
                 Loading current event status…
               </div>
               <div id="admin-tournament-list" class="fixture-preview"></div>
               
-              <h4 style="margin-top: 12px; color: var(--primary-green);">All Matches Database Manager</h4>
-              <div class="admin-table-container">
+              <section id="admin-match-manager" class="dashboard-card hidden">
+                <div class="dashboard-card-header"><div><div class="setup-eyebrow">Operations</div><h3>Match Manager</h3></div><button class="icon-btn" onclick="closeAdminMatchManager()" aria-label="Close match manager"><i data-lucide="x"></i></button></div>
+                <div class="admin-table-container">
                 <table class="admin-table">
                   <thead>
                     <tr>
@@ -433,7 +352,8 @@
                     <!-- Loaded dynamically -->
                   </tbody>
                 </table>
-              </div>
+                </div>
+              </section>
               
             </div>
           </div>
@@ -443,17 +363,20 @@
           <!-- ======================================== -->
           <div id="builder-panel" class="tab-panel">
             <div class="builder-shell">
-              <div class="builder-header"><div><div class="setup-eyebrow">Tournament Builder</div><h3 id="builder-title">Create Tournament</h3></div><button class="btn-inline-change" onclick="switchTab('admin')">Close</button></div>
-              <div class="builder-steps" id="builder-steps"><span class="active">Type</span><span>Format</span><span>Settings</span><span>Players</span><span>Fixtures</span><span>Preview</span><span>Publish</span></div>
+              <div class="builder-header"><div><div class="setup-eyebrow">Tournament Builder</div><h3 id="builder-title">Create Tournament</h3></div></div>
+              <div class="wizard-progress" aria-live="polite">
+                <div class="wizard-progress-copy"><strong id="builder-step-count">Step 1 of 7</strong><span id="builder-step-name">Tournament type</span></div>
+                <div class="progress-track" role="progressbar" aria-valuemin="1" aria-valuemax="7" aria-valuenow="1"><span id="builder-progress-bar"></span></div>
+              </div>
 
               <section id="builder-type-step" class="builder-step active">
                 <h4>Choose tournament type</h4>
                 <div class="choice-stack">
-                  <button class="choice-card" onclick="selectTournamentType('mixed-doubles')"><strong>Mixed Doubles</strong><small>One man and one woman per team</small></button>
-                  <button class="choice-card" onclick="selectTournamentType('mens-doubles')"><strong>Men's Doubles</strong><small>Men's roster and teams</small></button>
-                  <button class="choice-card" onclick="selectTournamentType('womens-doubles')"><strong>Women's Doubles</strong><small>Women's roster and teams</small></button>
+                  <button class="choice-card" data-tournament-type="mixed-doubles" onclick="selectTournamentType('mixed-doubles')"><strong>Mixed Doubles</strong><small>One man and one woman per team</small></button>
+                  <button class="choice-card" data-tournament-type="mens-doubles" onclick="selectTournamentType('mens-doubles')"><strong>Men's Doubles</strong><small>Men's roster and teams</small></button>
+                  <button class="choice-card" data-tournament-type="womens-doubles" onclick="selectTournamentType('womens-doubles')"><strong>Women's Doubles</strong><small>Women's roster and teams</small></button>
                 </div>
-                <div class="builder-actions"><button class="btn btn-outline" onclick="switchTab('admin')">Back</button></div>
+                <div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="goBackInWorkflow()">Previous</button><button id="builder-type-continue" class="btn btn-primary" onclick="continueTournamentType()" disabled>Continue</button></div>
               </section>
 
               <section id="builder-format-step" class="builder-step">
@@ -462,7 +385,7 @@
                   <summary>About this format</summary>
                   <div id="format-info-content"></div>
                 </details>
-                <div class="builder-actions"><button class="btn btn-outline" onclick="showBuilderStep('type')">Back</button><button class="btn btn-primary" onclick="confirmTournamentFormat()">Next: Settings</button></div>
+                <div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('type')">Previous</button><button class="btn btn-primary" onclick="confirmTournamentFormat()">Continue</button></div>
               </section>
 
               <section id="builder-details-step" class="builder-step">
@@ -474,7 +397,7 @@
                   <label class="setup-field"><span>Match duration</span><div class="input-with-unit"><input id="builder-match-duration" class="form-input" type="number" inputmode="numeric" min="1" max="180" value="8" /><span>min</span></div></label>
                   <label class="setup-field"><span>Points to win</span><input id="builder-points-to-win" class="form-input" type="number" inputmode="numeric" min="1" max="99" value="15" /></label>
                   <label class="setup-field"><span>Win by</span><input id="builder-win-by" class="form-input" type="number" inputmode="numeric" min="1" max="10" value="1" /></label>
-                  <label class="setup-field"><span>Courts</span><input id="builder-court-count" class="form-input" type="number" inputmode="numeric" min="1" max="12" value="4" /></label>
+                  <label class="setup-field"><span>Courts</span><input id="builder-court-count" class="form-input" type="number" inputmode="numeric" min="1" max="4" value="4" /></label>
                   <label id="builder-round-count-field" class="setup-field"><span>Rounds</span><input id="builder-round-count" class="form-input" type="number" inputmode="numeric" min="1" max="100" value="6" /></label>
                   <label class="setup-field"><span>Between rounds</span><div class="input-with-unit"><input id="builder-round-gap" class="form-input" type="number" inputmode="numeric" min="0" max="120" value="2" /><span>min</span></div></label>
                   <label class="setup-field"><span>Start time</span><input id="builder-start-time" class="form-input" type="time" value="11:00" /></label>
@@ -487,12 +410,13 @@
                   <label class="toggle-row"><span><strong>Time-limit results</strong><small>Allow a leading score to be finalized when time expires.</small></span><input id="builder-time-limit-results" type="checkbox" checked /></label>
                 </div></details>
                 <div id="builder-settings-error" class="action-message error hidden" role="alert"></div>
-                <div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('format')">Back</button><button id="builder-save-settings" class="btn btn-primary" onclick="saveTournamentConfiguration()">Save & Next</button></div>
+                <div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('format')">Previous</button><button id="builder-save-settings" class="btn btn-primary" onclick="saveTournamentConfiguration()">Continue</button></div>
               </section>
 
-              <section id="builder-players-step" class="builder-step"><h4>Players</h4><p class="builder-help">Confirm the roster. Permanent labels never change; display names are optional.</p><div id="builder-player-grid" class="player-assignment-grid"></div><div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('details')">Back</button><button id="builder-save-players" class="btn btn-primary" onclick="saveTournamentPlayers()">Save Players</button></div></section>
-              <section id="builder-fixtures-step" class="builder-step"><h4>Generate fixtures</h4><div id="builder-assignment-summary" class="setup-note"></div><p class="builder-help">Create the draft schedule, then review every matchup before publishing.</p><div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('players')">Back</button><button id="builder-generate" class="btn btn-primary" onclick="generateBuilderFixtures()">Generate Fixtures</button></div></section>
-              <section id="builder-preview-step" class="builder-step"><h4>Preview & publish</h4><div id="builder-preview-summary" class="setup-note"></div><div id="builder-preview-list" class="fixture-preview"></div><div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('fixtures')">Back</button><button id="builder-publish" class="btn btn-primary" onclick="publishBuilderTournament()">Publish Tournament</button></div></section>
+              <section id="builder-players-step" class="builder-step"><h4>Players</h4><p class="builder-help">Confirm the roster. Permanent labels never change; display names are optional.</p><div id="builder-player-grid" class="player-assignment-grid"></div><div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('details')">Previous</button><button id="builder-save-players" class="btn btn-primary" onclick="saveTournamentPlayers()">Continue</button></div></section>
+              <section id="builder-fixtures-step" class="builder-step"><h4>Generate fixtures</h4><div id="builder-assignment-summary" class="setup-note"></div><p class="builder-help">Create the draft schedule, then review every matchup before publishing.</p><div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('players')">Previous</button><button id="builder-generate" class="btn btn-primary" onclick="generateBuilderFixtures()">Generate Fixtures</button></div></section>
+              <section id="builder-preview-step" class="builder-step"><h4>Preview fixtures</h4><div id="builder-preview-summary" class="setup-note"></div><div id="builder-preview-list" class="fixture-preview"></div><div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('fixtures')">Previous</button><button class="btn btn-primary" onclick="showBuilderStep('publish')">Continue</button></div></section>
+              <section id="builder-publish-step" class="builder-step"><h4>Ready to publish</h4><div id="builder-publish-summary" class="publish-summary"></div><p class="builder-help">Publishing makes this tournament available to referee devices and locks fixture generation.</p><div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('preview')">Previous</button><button id="builder-publish" class="btn btn-primary" onclick="publishBuilderTournament()">Publish Tournament</button></div></section>
               <div id="builder-message" class="action-message hidden" role="status" aria-live="polite"></div>
             </div>
           </div>
@@ -520,30 +444,6 @@
           </div>
         </div>
 
-        <!-- Tab Navigation (Mobile footer) -->
-        <nav class="tab-nav">
-          <button class="tab-btn active" id="tab-btn-score" onclick="switchTab('score')">
-            <i data-lucide="hash"></i>
-            <span>Score</span>
-          </button>
-          <button class="tab-btn" id="tab-btn-matches" onclick="switchTab('matches')">
-            <i data-lucide="calendar"></i>
-            <span>Matches</span>
-          </button>
-          <button class="tab-btn" id="tab-btn-leaderboard" onclick="switchTab('leaderboard')">
-            <i data-lucide="trophy"></i>
-            <span>Standings</span>
-          </button>
-          <button class="tab-btn" id="tab-btn-rules" onclick="switchTab('rules')">
-            <i data-lucide="book-open"></i>
-            <span>Rules</span>
-          </button>
-          <button class="tab-btn hidden" id="tab-btn-admin" onclick="switchTab('admin')">
-            <i data-lucide="shield"></i>
-            <span>Admin</span>
-          </button>
-        </nav>
-
       </div>
 
     </div>
@@ -557,7 +457,7 @@
       <div class="bottom-sheet" onclick="event.stopPropagation()">
         <div class="bottom-sheet-header">
           <h3 class="bottom-sheet-title">Manual Score Correction</h3>
-          <button style="background: none; border: none; cursor: pointer;" onclick="closeQuickScoreSheet()">
+          <button class="icon-btn" onclick="closeQuickScoreSheet()" aria-label="Close score correction">
             <i data-lucide="x" style="color: var(--text-muted);"></i>
           </button>
         </div>
@@ -663,10 +563,6 @@
     <!-- 4. FIREBASE MODULES AND APPS -->
     <!-- ============================================ -->
     
-    <!-- Firebase Compat Web SDK (CDN) -->
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
 
     <!-- App Fixture Data -->
     <script src="./fixtures.js"></script>

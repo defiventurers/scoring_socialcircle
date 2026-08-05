@@ -1,4 +1,4 @@
-const CACHE_NAME = "pickleball-social-v5-tournament-builder";
+const CACHE_NAME = "pickleball-social-v6-mobile-workflows";
 const ASSETS = [
   "./",
   "./index.html",

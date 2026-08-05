@@ -85,14 +85,9 @@ window.addEventListener("DOMContentLoaded", () => {
     currentMatch = null;
 
     if (showLogin) {
-      const dashboard = document.getElementById("dashboard-screen");
-      const login = document.getElementById("login-screen");
-      const pinStep = document.getElementById("login-step-pin");
-      const courtStep = document.getElementById("login-step-court");
-      if (dashboard) dashboard.classList.add("hidden");
-      if (login) login.classList.remove("hidden");
-      if (pinStep) pinStep.classList.add("hidden");
-      if (courtStep) courtStep.classList.remove("hidden");
+      workflowIntent = null;
+      selectedTournamentId = null;
+      showOnlyScreen("home-screen");
       pauseTimer();
     }
   }
@@ -254,7 +249,8 @@ window.addEventListener("DOMContentLoaded", () => {
         return true;
       }
 
-      const payload = await requestJson(`/api/matches?tournamentId=${encodeURIComponent(activeTournament.id)}`);
+      const tournamentId = selectedTournamentId || activeTournament.id;
+      const payload = await requestJson(`/api/matches?tournamentId=${encodeURIComponent(tournamentId)}`);
       activeTournament = payload.tournament || activeTournament;
       serverLeaderboard = Array.isArray(payload.leaderboard) ? payload.leaderboard : [];
       applyServerMatches(payload.matches);
@@ -380,9 +376,7 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!loaded) throw new Error("Could not load the shared match schedule.");
 
     originalLoginSuccess(payload.court, "postgres-session");
-    if (payload.role === "admin") {
-      setTimeout(() => openTournamentBuilder(), 0);
-    }
+    if (payload.role === "admin" && workflowIntent === "create") await openTournamentBuilder();
     startMatchSync();
     if (pinInput) pinInput.value = "";
     errorEl?.classList.add("hidden");
@@ -419,6 +413,11 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     writeInFlight = true;
+    const submitButton = document.getElementById("btn-submit-login");
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.setAttribute("aria-busy", "true");
+    }
     setConnectionLabel("AUTHENTICATING", "saving");
     errorEl?.classList.add("hidden");
 
@@ -441,29 +440,48 @@ window.addEventListener("DOMContentLoaded", () => {
       }
     } finally {
       writeInFlight = false;
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.removeAttribute("aria-busy");
+      }
       if (currentMatch) renderActiveScoreboard();
       else applyWriteAvailability();
     }
   };
 
-  checkAutologin = async function checkServerAutologin() {
-    const savedCourt = normalizeCourt(localStorage.getItem("saved_court"));
-    if (!savedCourt || !sessionToken) {
-      clearServerSession(false);
-      return;
-    }
-
-    currentCourt = savedCourt;
-    const loaded = await syncMatchesFromServer({ initial: true });
-    if (!loaded || !sessionToken) return;
-
-    originalLoginSuccess(savedCourt, "postgres-session");
-    startMatchSync();
+  checkAutologin = async function keepHomeAsEntryPoint() {
+    // A valid session may remain in storage, but every visit starts at the
+    // three-action Home screen so roles and workflows never collapse together.
+    showOnlyScreen("home-screen");
   };
 
   logoutSession = function logoutServerSession() {
     clearServerSession(true);
     checkHealth();
+  };
+
+  loadTournamentCatalog = async function loadPublishedTournamentCatalog() {
+    const container = document.getElementById("tournament-selection-list");
+    if (!container) return;
+    container.innerHTML = '<div class="empty-state">Loading tournaments...</div>';
+    try {
+      const payload = await requestJson("/api/tournament-catalog");
+      const tournaments = payload.tournaments || [];
+      if (!tournaments.length) {
+        container.innerHTML = '<div class="empty-state"><strong>No active tournaments</strong><span>An organizer must publish a tournament before referees can score.</span></div>';
+        return;
+      }
+      container.innerHTML = tournaments.map((tournament) => `
+        <button class="selection-card" onclick="chooseTournament('${tournament.id}')">
+          <span><strong>${escapeHtml(tournament.name)}</strong><small>${escapeHtml(tournament.format.replace(/-/g, " "))}${tournament.location ? ` · ${escapeHtml(tournament.location)}` : ""}</small></span>
+          <span class="selection-meta">${tournament.numberOfCourts} courts<i data-lucide="chevron-right"></i></span>
+        </button>
+      `).join("");
+      activeTournament = tournaments.find((tournament) => tournament.id === selectedTournamentId) || tournaments[0];
+      initLucide();
+    } catch (error) {
+      container.innerHTML = `<div class="empty-state error"><strong>Could not load tournaments</strong><span>${escapeHtml(error.message)}</span><button class="btn btn-outline" onclick="loadTournamentCatalog()">Try Again</button></div>`;
+    }
   };
 
   validateAdminPasscode = async function validateServerAdminPasscode() {
@@ -672,7 +690,7 @@ window.addEventListener("DOMContentLoaded", () => {
     const nameError = document.getElementById("builder-name-error");
     if (name.length < 3) errors.push("Enter a tournament name with at least 3 characters.");
     if (!Number.isInteger(builderNumber("builder-player-count")) || builderNumber("builder-player-count") < 4 || builderNumber("builder-player-count") > 40 || builderNumber("builder-player-count") % 2) errors.push("Players must be an even number from 4 to 40.");
-    if (!Number.isInteger(builderNumber("builder-court-count")) || builderNumber("builder-court-count") < 1 || builderNumber("builder-court-count") > 12) errors.push("Courts must be from 1 to 12.");
+    if (!Number.isInteger(builderNumber("builder-court-count")) || builderNumber("builder-court-count") < 1 || builderNumber("builder-court-count") > 4) errors.push("Courts must be from 1 to 4.");
     if (!Number.isInteger(builderNumber("builder-match-duration")) || builderNumber("builder-match-duration") < 1 || builderNumber("builder-match-duration") > 180) errors.push("Match duration must be from 1 to 180 minutes.");
     if (!Number.isInteger(builderNumber("builder-points-to-win")) || builderNumber("builder-points-to-win") < 1 || builderNumber("builder-points-to-win") > 99) errors.push("Points to win must be from 1 to 99.");
     if (!Number.isInteger(builderNumber("builder-win-by")) || builderNumber("builder-win-by") < 1 || builderNumber("builder-win-by") > 10) errors.push("Win by must be from 1 to 10.");
@@ -761,8 +779,11 @@ window.addEventListener("DOMContentLoaded", () => {
 
   selectTournamentType = function selectBuilderTournamentType(type) {
     builderTournamentType = type;
-    showBuilderStep("format");
-    showFormatInformation();
+    document.querySelectorAll("[data-tournament-type]").forEach((button) => {
+      button.classList.toggle("selected", button.dataset.tournamentType === type);
+    });
+    const continueButton = document.getElementById("builder-type-continue");
+    if (continueButton) continueButton.disabled = false;
   };
 
   showFormatInformation = function renderFormatInformation() {
@@ -780,12 +801,21 @@ window.addEventListener("DOMContentLoaded", () => {
   };
 
   showBuilderStep = function showSharedBuilderStep(step) {
-    const mapping = { type: 0, format: 1, details: 2, players: 3, fixtures: 4, preview: 5 };
+    const steps = ["type", "format", "details", "players", "fixtures", "preview", "publish"];
+    const labels = ["Tournament type", "Format", "Settings", "Players", "Fixtures", "Preview", "Publish"];
+    const index = Math.max(0, steps.indexOf(step));
     setBuilderMessage();
     document.querySelectorAll(".builder-step").forEach((element) => element.classList.remove("active"));
     document.getElementById(`builder-${step}-step`)?.classList.add("active");
-    document.querySelectorAll("#builder-steps span").forEach((element, index) => element.classList.toggle("active", index <= (mapping[step] ?? 0)));
-    document.getElementById("builder-panel")?.scrollTo({ top: 0, behavior: "smooth" });
+    document.getElementById("builder-step-count").textContent = `Step ${index + 1} of 7`;
+    document.getElementById("builder-step-name").textContent = labels[index];
+    document.getElementById("builder-progress-bar").style.width = `${((index + 1) / 7) * 100}%`;
+    document.querySelector(".progress-track")?.setAttribute("aria-valuenow", String(index + 1));
+    if (step === "publish" && builderTournament) {
+      const summary = document.getElementById("builder-publish-summary");
+      summary.innerHTML = `<strong>${escapeHtml(builderTournament.name)}</strong><span>${builderMatches.length} matches · ${builderTournament.numberOfCourts} courts · ${escapeHtml(formatDefinitions[builderTournament.format]?.name || builderTournament.format)}</span>`;
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   function permanentLabels(count) {
@@ -904,8 +934,13 @@ window.addEventListener("DOMContentLoaded", () => {
       builderTournament = null;
       writeInFlight = false;
       await syncMatchesFromServer({ initial: true });
-      switchTab("admin");
       setDatabaseBadge(`Published • ${builderMatches.length} matches`);
+      if (workflowIntent === "create") {
+        alert("Tournament published. Referee devices can now select it from Home.");
+        logoutSession();
+      } else {
+        switchTab("admin");
+      }
     } catch (error) {
       setBuilderMessage(error.message || "Could not publish the tournament.", "error");
     } finally {

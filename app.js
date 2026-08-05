@@ -14,6 +14,9 @@ let firebaseEnabled = false;
 let activeTab = "score";
 let isOnline = false;
 let isSaving = false;
+let workflowIntent = null;
+let selectedTournamentId = null;
+let loginStep = "tournament";
 
 // Settings and Preferences (Sync with LocalStorage)
 let voiceEnabled = localStorage.getItem("voice_enabled") !== "false"; // default true
@@ -31,6 +34,7 @@ const LOCAL_USERS_KEY = "pickleball_social_court_users";
 
 // Initialize Application
 window.addEventListener("DOMContentLoaded", () => {
+  if (["localhost", "127.0.0.1"].includes(window.location.hostname)) document.body.classList.add("development");
   initFirebase();
   loadSavedPreferences();
   initLucide();
@@ -42,6 +46,109 @@ window.addEventListener("DOMContentLoaded", () => {
     setOnlineStatus(true); // Always online in local demo mode
   }
 });
+
+function showOnlyScreen(screenId) {
+  ["home-screen", "login-screen", "dashboard-screen"].forEach((id) => {
+    document.getElementById(id)?.classList.toggle("hidden", id !== screenId);
+  });
+  window.scrollTo({ top: 0, behavior: "auto" });
+}
+
+function showLoginStep(step) {
+  loginStep = step;
+  ["tournament", "court", "pin"].forEach((name) => {
+    document.getElementById(`login-step-${name}`)?.classList.toggle("hidden", name !== step);
+  });
+  const subtitles = { tournament: "Choose a tournament", court: "Choose your court", pin: "Enter your access PIN" };
+  const subtitle = document.getElementById("login-workflow-subtitle");
+  if (subtitle) subtitle.textContent = subtitles[step] || "";
+  window.scrollTo({ top: 0, behavior: "auto" });
+}
+
+function startRefereeFlow() {
+  workflowIntent = "referee";
+  currentCourt = null;
+  document.getElementById("login-workflow-title").textContent = "Score Tournament";
+  showOnlyScreen("login-screen");
+  showLoginStep("tournament");
+  loadTournamentCatalog();
+}
+
+function startCreateTournamentFlow() {
+  workflowIntent = "create";
+  startAdminAuthentication("Create Tournament");
+}
+
+function startAdminFlow() {
+  workflowIntent = "admin";
+  startAdminAuthentication("Admin Access");
+}
+
+function startAdminAuthentication(title) {
+  currentCourt = "admin";
+  document.getElementById("login-workflow-title").textContent = title;
+  document.getElementById("login-auth-title").textContent = "Enter administrator PIN";
+  document.getElementById("selected-court-title").textContent = "Administrator";
+  const submit = document.getElementById("btn-submit-login");
+  if (submit) submit.innerHTML = '<i data-lucide="lock"></i> Continue';
+  showOnlyScreen("login-screen");
+  showLoginStep("pin");
+  document.getElementById("court-pin-input").value = "";
+  document.getElementById("court-pin-input").focus();
+  initLucide();
+}
+
+function loadTournamentCatalog() {
+  const container = document.getElementById("tournament-selection-list");
+  if (container) container.innerHTML = '<div class="empty-state">Tournament selection requires the shared server connection.</div>';
+}
+
+function chooseTournament(tournamentId) {
+  selectedTournamentId = tournamentId;
+  renderCourtSelection(Number(activeTournament?.numberOfCourts || 4));
+  showLoginStep("court");
+}
+
+function renderCourtSelection(count) {
+  const grid = document.getElementById("court-selection-grid");
+  if (!grid) return;
+  grid.innerHTML = "";
+  for (let court = 1; court <= Math.max(1, Math.min(4, count)); court += 1) {
+    const button = document.createElement("button");
+    button.className = "court-card";
+    button.innerHTML = `<span class="number">${court}</span><span class="label">Court</span>`;
+    button.addEventListener("click", () => selectCourt(court));
+    grid.appendChild(button);
+  }
+}
+
+function goBackInWorkflow() {
+  if (!document.getElementById("login-screen")?.classList.contains("hidden")) {
+    if (loginStep === "pin" && workflowIntent === "referee") return showLoginStep("court");
+    if (loginStep === "court") return showLoginStep("tournament");
+    showOnlyScreen("home-screen");
+    return;
+  }
+  if (activeTab === "score" && currentCourt !== "admin") return switchTab("matches");
+  if (activeTab === "builder" && workflowIntent === "create") return logoutSession();
+  if (["builder", "players"].includes(activeTab)) return switchTab("admin");
+  if (activeTab === "admin") return logoutSession();
+  showOnlyScreen("home-screen");
+}
+
+function openAdminMatchManager() {
+  document.getElementById("admin-match-manager")?.classList.remove("hidden");
+  document.getElementById("admin-match-manager")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function closeAdminMatchManager() {
+  document.getElementById("admin-match-manager")?.classList.add("hidden");
+}
+
+function continueTournamentType() {
+  showBuilderStep("format");
+  showFormatInformation();
+}
 
 // Initialize Icons
 function initLucide() {
@@ -356,17 +463,21 @@ function onMatchesDataChanged(matches) {
 // 3. SECURE AUTHENTICATION FLOW
 function selectCourt(num) {
   currentCourt = num;
-  document.getElementById("selected-court-title").textContent = `Court ${num} Selected`;
+  loginStep = "pin";
+  document.getElementById("selected-court-title").textContent = `Court ${num}`;
+  document.getElementById("login-auth-title").textContent = "Enter referee PIN";
   document.getElementById("login-step-court").classList.add("hidden");
   document.getElementById("login-step-pin").classList.remove("hidden");
+  const submit = document.getElementById("btn-submit-login");
+  if (submit) submit.innerHTML = '<i data-lucide="lock"></i> Authenticate Referee';
   document.getElementById("court-pin-input").value = "";
   document.getElementById("court-pin-input").focus();
   document.getElementById("login-error").classList.add("hidden");
+  initLucide();
 }
 
 function goBackToCourts() {
-  document.getElementById("login-step-pin").classList.add("hidden");
-  document.getElementById("login-step-court").classList.remove("hidden");
+  showLoginStep("court");
 }
 
 // Submit 4-digit PIN mapping to Firebase accounts
@@ -448,43 +559,20 @@ function submitPinLogin() {
 
 // Quick Admin Direct trigger
 function tryAdminLoginDirect() {
-  const pinInput = document.getElementById("court-pin-input");
-  currentCourt = "admin";
-  document.getElementById("selected-court-title").textContent = `Admin Access Portal`;
-  document.getElementById("login-step-court").classList.add("hidden");
-  document.getElementById("login-step-pin").classList.remove("hidden");
-  pinInput.value = "";
-  pinInput.focus();
+  startAdminFlow();
 }
 
 // Logged in successfully
 function loginSuccess(court, userId) {
-  // Save credentials locally
   localStorage.setItem("saved_court", court);
   localStorage.setItem("saved_uid", userId);
-  
   currentCourt = court;
-  
-  // Update header titles
+
   const titleEl = document.getElementById("referee-court-title");
-  if (court === "admin") {
-    titleEl.textContent = "ADMINISTRATOR PORTAL";
-    document.getElementById("tab-btn-admin").classList.remove("hidden");
-    document.getElementById("desktop-admin-nav").classList.remove("hidden");
-  } else {
-    titleEl.textContent = `COURT ${court} REFEREE`;
-    document.getElementById("tab-btn-admin").classList.add("hidden");
-    document.getElementById("desktop-admin-nav").classList.add("hidden");
-  }
-  
-  // Auto switch screen
-  document.getElementById("login-screen").classList.add("hidden");
-  document.getElementById("dashboard-screen").classList.remove("hidden");
-  
-  // Auto open Score tab
-  switchTab("score");
-  
-  // Run recalculations
+  titleEl.textContent = court === "admin" ? "ADMIN DASHBOARD" : `COURT ${court} REFEREE`;
+
+  showOnlyScreen("dashboard-screen");
+  switchTab(court === "admin" ? "admin" : "matches");
   onMatchesDataChanged(matchesCache);
 }
 
@@ -502,62 +590,43 @@ function checkAutologin() {
 }
 
 function logoutSession() {
-  if (firebaseEnabled) {
+  if (firebaseEnabled && typeof firebase !== "undefined" && firebase.auth) {
     firebase.auth().signOut().catch(e => console.error(e));
   }
-  
-  // Clear storage
   localStorage.removeItem("saved_court");
   localStorage.removeItem("saved_uid");
-  
   currentCourt = null;
   currentMatch = null;
-  
-  // Hide UI
-  document.getElementById("dashboard-screen").classList.add("hidden");
-  document.getElementById("login-screen").classList.remove("hidden");
-  document.getElementById("login-step-pin").classList.add("hidden");
-  document.getElementById("login-step-court").classList.remove("hidden");
-  
-  // Stop timer
+  workflowIntent = null;
+  selectedTournamentId = null;
   pauseTimer();
+  showOnlyScreen("home-screen");
 }
 
 // 4. TAB NAVIGATION & VIEWS
 function switchTab(tabId) {
+  if (currentCourt !== "admin" && !["score", "matches"].includes(tabId)) return;
   activeTab = tabId;
-  
-  // Update Mobile Navigation Buttons
-  const buttons = document.querySelectorAll(".tab-btn");
-  buttons.forEach((btn) => {
-    btn.classList.remove("active");
-  });
-  
-  const activeBtn = document.getElementById(`tab-btn-${tabId}`);
-  if (activeBtn) activeBtn.classList.add("active");
-  
-  // Update Desktop Navigation Header Buttons
-  const deskButtons = document.querySelectorAll(".desktop-nav-btn");
-  deskButtons.forEach((btn) => {
-    btn.classList.remove("active");
-    if (btn.textContent.toLowerCase() === tabId) {
-      btn.classList.add("active");
-    }
-  });
 
-  // Switch visible panel
-  const panels = document.querySelectorAll(".tab-panel");
-  panels.forEach((p) => {
-    p.classList.remove("active");
-  });
-  
-  const activePanel = document.getElementById(`${tabId}-panel`);
-  if (activePanel) activePanel.classList.add("active");
-  
-  // Trigger redraws if necessary
+  document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.remove("active"));
+  document.getElementById(`${tabId}-panel`)?.classList.add("active");
+
+  const title = document.getElementById("referee-court-title");
+  const subtitle = document.getElementById("referee-round-title");
+  if (currentCourt === "admin") {
+    if (title) title.textContent = tabId === "builder" ? "TOURNAMENT BUILDER" : tabId === "players" ? "PLAYER DIRECTORY" : "ADMIN DASHBOARD";
+    if (subtitle) subtitle.textContent = tabId === "admin" ? "TOURNAMENT OPERATIONS" : "ADMINISTRATION";
+  } else if (tabId === "matches") {
+    if (title) title.textContent = `COURT ${currentCourt} REFEREE`;
+    if (subtitle) subtitle.textContent = "MATCH QUEUE";
+    const queueLabel = document.getElementById("queue-court-label");
+    if (queueLabel) queueLabel.textContent = `Court ${currentCourt}`;
+  }
+
   if (tabId === "matches") renderMatchesList();
   if (tabId === "leaderboard") renderLeaderboard();
   if (tabId === "admin" && currentCourt === "admin") renderAdminPortal();
+  window.scrollTo({ top: 0, behavior: "auto" });
 }
 
 // 5. REFEREE ACTIVE MATCH & PROGRESSION
@@ -1207,7 +1276,7 @@ function renderMatchesList() {
     const isWinnerA = m.status === "finalized" && m.teamAScore > m.teamBScore;
     const isWinnerB = m.status === "finalized" && m.teamBScore > m.teamAScore;
     
-    const card = document.createElement("div");
+    const card = document.createElement("article");
     card.className = `match-item-card ${isActive ? "active-match" : ""} ${m.status === "finalized" ? "locked" : ""}`;
     card.onclick = () => {
       // Referees can only switch unfinished matches, or view completed. 
@@ -1456,6 +1525,13 @@ function renderAdminPortal() {
 
   document.getElementById("admin-stat-completed").textContent = completedCount;
   document.getElementById("admin-stat-active").textContent = activeCourts;
+  document.getElementById("admin-stat-total").textContent = Object.keys(matchesCache).length;
+  const eventName = document.getElementById("admin-current-event-name");
+  const eventStatus = document.getElementById("admin-current-event-status");
+  if (eventName) eventName.textContent = activeTournament?.name || "No active tournament";
+  if (eventStatus) eventStatus.textContent = activeTournament?.status || "Inactive";
+  const continueButton = document.getElementById("btn-continue-tournament");
+  if (continueButton) continueButton.disabled = !activeTournament || activeTournament.status !== "published";
   
   const tbody = document.getElementById("admin-matches-tbody");
   tbody.innerHTML = "";

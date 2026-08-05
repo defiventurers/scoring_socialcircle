@@ -38,7 +38,7 @@ function normalizedDraft(body, id) {
     tournamentType: TOURNAMENT_TYPES.includes(body.tournamentType) ? body.tournamentType : 'mixed-doubles',
     date: body.date || null,
     location: String(body.location || '').trim() || null,
-    numberOfCourts: Math.max(1, Math.min(12, Math.round(number(body.numberOfCourts, 1)))),
+    numberOfCourts: Math.max(1, Math.min(4, Math.round(number(body.numberOfCourts, 1)))),
     maxPlayers,
     pointsToWin: Math.max(1, Math.min(99, Math.round(number(body.pointsToWin, 15)))),
     winBy: Math.max(1, Math.min(10, Math.round(number(body.winBy, 1)))),
