@@ -16,6 +16,7 @@ let isOnline = false;
 let isSaving = false;
 let workflowIntent = null;
 let selectedTournamentId = null;
+let tournamentCatalog = [];
 let loginStep = "tournament";
 
 // Settings and Preferences (Sync with LocalStorage)
@@ -104,8 +105,11 @@ function loadTournamentCatalog() {
 }
 
 function chooseTournament(tournamentId) {
-  selectedTournamentId = tournamentId;
-  renderCourtSelection(Number(activeTournament?.numberOfCourts || 4));
+  const tournament = tournamentCatalog.find((item) => item.id === tournamentId);
+  if (!tournament) return;
+  selectedTournamentId = tournament.id;
+  activeTournament = tournament;
+  renderCourtSelection(Number(tournament.numberOfCourts || 1));
   showLoginStep("court");
 }
 
@@ -155,6 +159,15 @@ function initLucide() {
   if (typeof lucide !== "undefined") {
     lucide.createIcons();
   }
+}
+
+function escapeMarkup(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 // 1. FIREBASE INITIALIZATION & FALLBACK
@@ -1278,15 +1291,22 @@ function renderMatchesList() {
     
     const card = document.createElement("article");
     card.className = `match-item-card ${isActive ? "active-match" : ""} ${m.status === "finalized" ? "locked" : ""}`;
-    card.onclick = () => {
-      // Referees can only switch unfinished matches, or view completed. 
-      // Admin can select ANY match
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    const openCard = () => {
       if (currentCourt === "admin" || m.status !== "finalized") {
         currentMatch = m;
         switchTab("score");
         renderActiveScoreboard();
       } else {
         alert("This match has been finalized and locked. Ask an administrator to reopen if correction is needed.");
+      }
+    };
+    card.onclick = openCard;
+    card.onkeydown = (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openCard();
       }
     };
     
@@ -1298,8 +1318,8 @@ function renderMatchesList() {
       
       <div class="match-card-teams">
         <div class="match-card-team-box">
-          <span class="player-small">${m.teamA[0]}</span>
-          <span class="player-small-sub">${m.teamA[1]}</span>
+          <span class="player-small">${escapeMarkup(m.teamA[0])}</span>
+          <span class="player-small-sub">${escapeMarkup(m.teamA[1])}</span>
         </div>
         
         <div class="match-card-score-box ${isWinnerA ? "winner-a" : isWinnerB ? "winner-b" : ""}">
@@ -1309,8 +1329,8 @@ function renderMatchesList() {
         </div>
         
         <div class="match-card-team-box right">
-          <span class="player-small">${m.teamB[0]}</span>
-          <span class="player-small-sub">${m.teamB[1]}</span>
+          <span class="player-small">${escapeMarkup(m.teamB[0])}</span>
+          <span class="player-small-sub">${escapeMarkup(m.teamB[1])}</span>
         </div>
       </div>
       
@@ -1548,11 +1568,11 @@ function renderAdminPortal() {
       <td><strong>Court ${m.court}</strong></td>
       <td>R${m.round}</td>
       <td>
-        <div style="font-weight:600;">${m.teamA.join("/")}</div>
+        <div style="font-weight:600;">${m.teamA.map(escapeMarkup).join("/")}</div>
         <div style="font-size:14px; color:var(--primary-green); font-family:var(--font-mono);">${m.teamAScore}</div>
       </td>
       <td>
-        <div style="font-weight:600;">${m.teamB.join("/")}</div>
+        <div style="font-weight:600;">${m.teamB.map(escapeMarkup).join("/")}</div>
         <div style="font-size:14px; color:var(--primary-green); font-family:var(--font-mono);">${m.teamBScore}</div>
       </td>
       <td>

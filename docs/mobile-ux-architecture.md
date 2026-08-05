@@ -113,6 +113,7 @@ src/
 - Removed three unused Firebase SDK requests from the production page.
 - Technical database/connectivity chrome is hidden outside localhost.
 - Public tournament discovery returns only fields needed before login.
+- Referee sessions are cryptographically scoped to the selected published tournament; read and mutation endpoints reject cross-tournament access.
 - Existing service worker remains network-first and now uses a new cache version.
 - The production API and scoring contracts remain unchanged.
 

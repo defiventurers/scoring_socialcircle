@@ -1,4 +1,4 @@
-import { canModifyCourt, getSessionFromRequest } from './_lib/auth.js';
+import { canAccessTournament, canModifyCourt, getSessionFromRequest } from './_lib/auth.js';
 import { appendAdaptiveFixtures, ensureDatabase, EVENT_ID, getMatch, getSql, getTournament, listMatches } from './_lib/db.js';
 import { methodNotAllowed, parseJsonBody, sendJson } from './_lib/http.js';
 
@@ -43,6 +43,9 @@ export default async function handler(req, res) {
   const tournamentId = String(body.tournamentId || EVENT_ID);
   if (!/^[a-z0-9]+(?:[a-z0-9_-]*[a-z0-9])?$/.test(tournamentId)) {
     return sendJson(res, 400, { error: 'Invalid tournament ID.' });
+  }
+  if (!canAccessTournament(session, tournamentId)) {
+    return sendJson(res, 403, { error: 'This session is not assigned to that tournament.' });
   }
 
   try {

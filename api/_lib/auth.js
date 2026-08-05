@@ -21,12 +21,13 @@ function safeEqual(a, b) {
   return timingSafeEqual(aBuffer, bBuffer);
 }
 
-export function createSession({ role, court = null }) {
+export function createSession({ role, court = null, tournamentId = null }) {
   const now = Date.now();
   const payload = {
     v: 1,
     role,
     court,
+    tournamentId,
     iat: now,
     exp: now + SESSION_TTL_MS,
   };
@@ -48,6 +49,9 @@ export function verifySession(token) {
       return null;
     }
     if (payload.role === 'court' && ![1, 2, 3, 4].includes(Number(payload.court))) {
+      return null;
+    }
+    if (payload.role === 'court' && !/^[a-z0-9]+(?:[a-z0-9_-]*[a-z0-9])?$/.test(String(payload.tournamentId || ''))) {
       return null;
     }
     if (payload.role !== 'court' && payload.role !== 'admin') return null;
@@ -81,5 +85,11 @@ export function validatePin(requestedCourt, submittedPin) {
 export function canModifyCourt(session, court) {
   return session?.role === 'admin' || (
     session?.role === 'court' && Number(session.court) === Number(court)
+  );
+}
+
+export function canAccessTournament(session, tournamentId) {
+  return session?.role === 'admin' || (
+    session?.role === 'court' && String(session.tournamentId) === String(tournamentId)
   );
 }

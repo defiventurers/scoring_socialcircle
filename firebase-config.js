@@ -364,7 +364,7 @@ window.addEventListener("DOMContentLoaded", () => {
   async function authenticateAndEnter(court, pin, errorEl, pinInput) {
     const payload = await requestJson("/api/login", {
       method: "POST",
-      body: JSON.stringify({ court, pin }),
+      body: JSON.stringify({ court, pin, ...(court === "admin" ? {} : { tournamentId: selectedTournamentId }) }),
     });
 
     sessionToken = payload.token;
@@ -450,8 +450,9 @@ window.addEventListener("DOMContentLoaded", () => {
   };
 
   checkAutologin = async function keepHomeAsEntryPoint() {
-    // A valid session may remain in storage, but every visit starts at the
-    // three-action Home screen so roles and workflows never collapse together.
+    // Home is a role chooser, so discard retained credentials and require the
+    // selected workflow to establish a freshly scoped session.
+    clearServerSession(false);
     showOnlyScreen("home-screen");
   };
 
@@ -467,6 +468,7 @@ window.addEventListener("DOMContentLoaded", () => {
     try {
       const payload = await requestJson("/api/tournament-catalog");
       const tournaments = payload.tournaments || [];
+      tournamentCatalog = tournaments;
       if (!tournaments.length) {
         container.innerHTML = '<div class="empty-state"><strong>No active tournaments</strong><span>An organizer must publish a tournament before referees can score.</span></div>';
         return;
@@ -478,6 +480,7 @@ window.addEventListener("DOMContentLoaded", () => {
         </button>
       `).join("");
       activeTournament = tournaments.find((tournament) => tournament.id === selectedTournamentId) || tournaments[0];
+      selectedTournamentId = null;
       initLucide();
     } catch (error) {
       container.innerHTML = `<div class="empty-state error"><strong>Could not load tournaments</strong><span>${escapeHtml(error.message)}</span><button class="btn btn-outline" onclick="loadTournamentCatalog()">Try Again</button></div>`;
@@ -807,6 +810,11 @@ window.addEventListener("DOMContentLoaded", () => {
     setBuilderMessage();
     document.querySelectorAll(".builder-step").forEach((element) => element.classList.remove("active"));
     document.getElementById(`builder-${step}-step`)?.classList.add("active");
+    const activeHeading = document.querySelector(`#builder-${step}-step h4`);
+    if (activeHeading) {
+      activeHeading.tabIndex = -1;
+      activeHeading.focus({ preventScroll: true });
+    }
     document.getElementById("builder-step-count").textContent = `Step ${index + 1} of 7`;
     document.getElementById("builder-step-name").textContent = labels[index];
     document.getElementById("builder-progress-bar").style.width = `${((index + 1) / 7) * 100}%`;
@@ -912,7 +920,7 @@ window.addEventListener("DOMContentLoaded", () => {
       builderTournament = payload.tournament;
       builderMatches = payload.matches || [];
       document.getElementById("builder-preview-summary").textContent = `${builderMatches.length} matches generated across ${builderTournament.numberOfCourts} courts.`;
-      document.getElementById("builder-preview-list").innerHTML = builderMatches.slice(0, 24).map((match) => `<div class="fixture-preview-row"><strong>R${match.round} · Court ${match.court}</strong><span>${match.teamA.join(" / ")} vs ${match.teamB.join(" / ")}</span></div>`).join("") + (builderMatches.length > 24 ? `<p class="setup-note">Showing first 24 of ${builderMatches.length} matches.</p>` : "");
+      document.getElementById("builder-preview-list").innerHTML = builderMatches.slice(0, 24).map((match) => `<div class="fixture-preview-row"><strong>R${Number(match.round)} · Court ${Number(match.court)}</strong><span>${match.teamA.map(escapeHtml).join(" / ")} vs ${match.teamB.map(escapeHtml).join(" / ")}</span></div>`).join("") + (builderMatches.length > 24 ? `<p class="setup-note">Showing first 24 of ${builderMatches.length} matches.</p>` : "");
       setDatabaseBadge(`Shared Postgres • ${builderMatches.length} matches`);
       showBuilderStep("preview");
     } catch (error) {
