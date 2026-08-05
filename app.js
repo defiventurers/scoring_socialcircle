@@ -1077,9 +1077,10 @@ function submitFinalization() {
   saveMatchToDatabase(currentMatch, (success) => {
     if (success) {
       closeFinalizeModal();
-      alert("Official result finalized successfully and locked!");
+      const assigned = autoAssignAvailableCourts();
+      alert(assigned.length ? "Official result finalized. Next match is ready on the available court." : "Official result finalized successfully and locked!");
       
-      // Progression: Automatically move to next match
+      // Progression: Automatically move to next match or waiting state
       updateActiveMatchState();
     } else {
       alert("Failed to save finalization. Please check connection.");
@@ -1552,6 +1553,7 @@ function renderAdminPortal() {
   if (eventStatus) eventStatus.textContent = activeTournament?.status || "Inactive";
   const continueButton = document.getElementById("btn-continue-tournament");
   if (continueButton) continueButton.disabled = !activeTournament || activeTournament.status !== "published";
+  renderLiveTournamentDashboard();
   
   const tbody = document.getElementById("admin-matches-tbody");
   tbody.innerHTML = "";
@@ -1805,3 +1807,123 @@ function validateAdminPasscode() {
 function closeAdminGate() {
   document.getElementById("admin-modal-overlay").classList.remove("active");
 }
+
+// 16. MOBILE WIZARD PRESETS, LIVE DASHBOARD, AND COURT AUTOMATION
+function startDashboardFlow() {
+  workflowIntent = "dashboard";
+  startAdminAuthentication("Tournament Dashboard");
+}
+
+function setupPresetControls() {
+  document.querySelectorAll(".preset-grid[data-preset-for]").forEach((grid) => {
+    if (grid.dataset.ready === "true") return;
+    const input = document.getElementById(grid.dataset.presetFor);
+    if (!input) return;
+    const values = String(grid.dataset.values || "").split(",").map((value) => value.trim()).filter(Boolean);
+    const renderActive = () => {
+      grid.querySelectorAll(".preset-button").forEach((button) => {
+        const active = button.dataset.value === input.value && button.dataset.custom !== "true";
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-pressed", String(active));
+      });
+    };
+    values.forEach((value) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "preset-button";
+      button.dataset.value = value;
+      button.setAttribute("aria-pressed", "false");
+      button.textContent = value;
+      button.addEventListener("click", () => {
+        input.value = value;
+        input.classList.add("hidden");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        renderActive();
+      });
+      grid.appendChild(button);
+    });
+    if (grid.dataset.custom === "true") {
+      const custom = document.createElement("button");
+      custom.type = "button";
+      custom.className = "preset-button";
+      custom.dataset.custom = "true";
+      custom.textContent = "Custom";
+      custom.addEventListener("click", () => {
+        input.classList.remove("hidden");
+        input.focus();
+        grid.querySelectorAll(".preset-button").forEach((button) => button.classList.remove("active"));
+        custom.classList.add("active");
+      });
+      grid.appendChild(custom);
+    }
+    input.addEventListener("input", renderActive);
+    grid.dataset.ready = "true";
+    renderActive();
+  });
+}
+
+function getMatchPlayers(match) {
+  return [...(match.teamA || []), ...(match.teamB || [])].filter(Boolean);
+}
+
+function findNextEligibleMatchForCourt(court, matches = Object.values(matchesCache)) {
+  const busyPlayers = new Set(matches.filter((match) => match.status === "active").flatMap(getMatchPlayers));
+  return matches
+    .filter((match) => match.status === "scheduled")
+    .sort((a, b) => Number(a.round) - Number(b.round) || Number(a.court) - Number(b.court))
+    .find((match) => !getMatchPlayers(match).some((player) => busyPlayers.has(player)) && (match.court === court || !matches.some((other) => other.court === court && other.status === "active")));
+}
+
+function autoAssignAvailableCourts() {
+  const matches = Object.values(matchesCache);
+  const courts = [...new Set(matches.map((match) => Number(match.court)).filter(Boolean))].sort((a, b) => a - b);
+  const updates = [];
+  courts.forEach((court) => {
+    const hasActive = matches.some((match) => Number(match.court) === court && match.status === "active");
+    if (hasActive) return;
+    const next = findNextEligibleMatchForCourt(court, matches);
+    if (next && next.court !== court) {
+      next.court = court;
+      next.assignmentStatus = "next-ready";
+      updates.push(next);
+    } else if (next) {
+      next.assignmentStatus = "next-ready";
+      updates.push(next);
+    }
+  });
+  updates.forEach((match) => saveMatchToDatabase(match));
+  return updates;
+}
+
+function renderLiveTournamentDashboard() {
+  const matches = Object.values(matchesCache);
+  const total = matches.length;
+  const completed = matches.filter((match) => match.status === "finalized").length;
+  const active = matches.filter((match) => match.status === "active").length;
+  const waiting = matches.filter((match) => match.status !== "finalized" && match.status !== "active").length;
+  const progress = total ? Math.round((completed / total) * 100) : 0;
+  const duration = Number(activeTournament?.settings?.roundDurationMinutes || 8) + Number(activeTournament?.settings?.intervalMinutes || 0);
+  const remainingWaves = Math.ceil(waiting / Math.max(1, Number(activeTournament?.numberOfCourts || new Set(matches.map((m) => m.court)).size || 1)));
+  const eta = waiting ? `${Math.max(1, remainingWaves * duration)}m` : "Done";
+  const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
+  setText("admin-stat-waiting", waiting);
+  setText("admin-stat-progress", `${progress}%`);
+  setText("admin-stat-eta", eta);
+  const grid = document.getElementById("court-status-grid");
+  if (grid) {
+    const courts = [...new Set(matches.map((match) => Number(match.court)).filter(Boolean))].sort((a, b) => a - b);
+    grid.innerHTML = courts.map((court) => {
+      const current = matches.find((match) => Number(match.court) === court && match.status === "active");
+      const next = findNextEligibleMatchForCourt(court, matches);
+      return `<div class="court-status-card"><strong>Court ${court}: ${current ? "In play" : "Available"}</strong><small>${current ? `${escapeMarkup(current.teamA.join(" / "))} vs ${escapeMarkup(current.teamB.join(" / "))}` : next ? `Next: ${escapeMarkup(next.teamA.join(" / "))} vs ${escapeMarkup(next.teamB.join(" / "))}` : "No eligible match waiting"}</small></div>`;
+    }).join("");
+  }
+  const ready = document.getElementById("next-match-ready-card");
+  if (ready) {
+    const nextReady = matches.find((match) => match.assignmentStatus === "next-ready" && match.status !== "finalized") || matches.find((match) => match.status === "scheduled");
+    ready.classList.toggle("hidden", !nextReady);
+    if (nextReady) ready.innerHTML = `<div class="ready-title">Court ${nextReady.court} Available — Next Match Ready</div><div class="ready-teams">${escapeMarkup(nextReady.teamA.join(" / "))}<br>vs<br>${escapeMarkup(nextReady.teamB.join(" / "))}</div><small>Waiting to be announced</small>`;
+  }
+}
+
+window.addEventListener("DOMContentLoaded", setupPresetControls);
