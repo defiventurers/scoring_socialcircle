@@ -1,4 +1,18 @@
-export const TOURNAMENT_TYPES = ['mixed-doubles', 'mens-doubles', 'womens-doubles'];
+export const TOURNAMENT_TYPES = ['mixed-doubles', 'mens-doubles', 'womens-doubles', 'mens-singles', 'womens-singles'];
+
+
+export const SPORT_RULE_PRESETS = {
+  tennis: { name: 'Tennis', events: ['mens-singles', 'womens-singles', 'mens-doubles', 'womens-doubles', 'mixed-doubles'], defaults: { matchFormat: 'best-of-3-sets', scoringSystem: 'traditional-tennis', sets: 3, gamesPerSet: 6, winSetBy: 2, tieBreak: true, tieBreakAt: '6-6', tieBreakPoints: 7, tieBreakWinBy: 2, serviceRules: 'standard', courtChanges: 'standard' }, editableParameters: ['sets', 'gamesPerSet', 'tieBreak', 'tieBreakPoints', 'finalSetSuperTieBreak', 'noAd', 'rallyPoint'] },
+  padel: { name: 'Padel', events: ['mens-doubles', 'womens-doubles', 'mixed-doubles'], defaults: { matchFormat: 'best-of-3-sets', scoringSystem: 'traditional-tennis', sets: 3, gamesPerSet: 6, winSetBy: 2, tieBreak: true, tieBreakAt: '6-6', tieBreakPoints: 7, serviceRules: 'standard-padel' }, editableParameters: ['sets', 'gamesPerSet', 'tieBreak', 'tieBreakPoints', 'goldenPoint', 'rallyPoint'] },
+  pickleball: { name: 'Pickleball', events: ['mens-singles', 'womens-singles', 'mens-doubles', 'womens-doubles', 'mixed-doubles'], defaults: { matchFormat: 'best-of-3-games', scoringSystem: 'official-pickleball', bestOf: 3, targetScore: 11, winBy: 2, maximumCap: null, serviceRules: 'official-side-out' }, editableParameters: ['bestOf', 'targetScore', 'winBy', 'maximumCap', 'rallyScoring', 'serviceRules'] },
+  badminton: { name: 'Badminton', events: ['mens-singles', 'womens-singles', 'mens-doubles', 'womens-doubles', 'mixed-doubles'], defaults: { matchFormat: 'best-of-3-games', scoringSystem: 'rally', bestOf: 3, targetScore: 21, winBy: 2, maximumCap: 30, serviceRules: 'official-bwf' }, editableParameters: ['bestOf', 'targetScore', 'winBy', 'maximumCap', 'serviceRules'] },
+  'table-tennis': { name: 'Table Tennis', events: ['mens-singles', 'womens-singles', 'mens-doubles', 'womens-doubles', 'mixed-doubles'], defaults: { matchFormat: 'best-of-5-games', scoringSystem: 'rally', bestOf: 5, targetScore: 11, winBy: 2, serviceRotationFrequency: 2, serviceRules: 'official-ittf' }, editableParameters: ['bestOf', 'targetScore', 'winBy', 'serviceRotationFrequency'] },
+};
+
+export function buildScoringConfiguration({ sport = 'pickleball', overrides = {}, mode = 'official' } = {}) {
+  const preset = SPORT_RULE_PRESETS[sport] || SPORT_RULE_PRESETS.pickleball;
+  return { sport, mode, preset: preset.name, rules: { ...preset.defaults, ...overrides }, editableParameters: preset.editableParameters };
+}
 
 export const TOURNAMENT_FORMATS = [
   'mixed-americano', 'americano', 'mexicano', 'round-robin', 'king-of-the-court',
@@ -26,6 +40,7 @@ function teamKey(team = []) { return [...team].sort().join(' + '); }
 function winnerTeam(match) { return Number(match.teamAScore) > Number(match.teamBScore) ? match.teamA : match.teamB; }
 function loserTeam(match) { return Number(match.teamAScore) > Number(match.teamBScore) ? match.teamB : match.teamA; }
 function pairFixedTeams(players, type) {
+  if (type === 'mens-singles' || type === 'womens-singles') return players.map((player) => [player.label]);
   if (type === 'mixed-doubles') {
     const men = players.filter((p) => p.gender === 'men');
     const women = players.filter((p) => p.gender === 'women');
@@ -160,11 +175,11 @@ export function calculateLeaderboardForTournament(tournament, matches, roster = 
 
 export function validateRosterForTournament(type, players) {
   if (!TOURNAMENT_TYPES.includes(type)) return 'Choose a valid tournament type.';
-  if (players.length < 4 || players.length % 2) return 'Doubles tournaments require an even roster of at least four players.';
+  if (players.length < 2 || players.length % 2) return 'Tournaments require an even roster of at least two players.';
   const men = players.filter((p) => p.gender === 'men').length; const women = players.filter((p) => p.gender === 'women').length;
   if (type === 'mixed-doubles' && (men !== women || men + women !== players.length)) return 'Mixed Doubles requires equal numbers of men and women.';
-  if (type === 'mens-doubles' && men !== players.length) return "Men's Doubles accepts men only.";
-  if (type === 'womens-doubles' && women !== players.length) return "Women's Doubles accepts women only.";
+  if ((type === 'mens-doubles' || type === 'mens-singles') && men !== players.length) return "Men's events accept men only.";
+  if ((type === 'womens-doubles' || type === 'womens-singles') && women !== players.length) return "Women's events accept women only.";
   return null;
 }
 

@@ -17,6 +17,16 @@ let isSaving = false;
 let workflowIntent = null;
 let selectedTournamentId = null;
 let tournamentCatalog = [];
+let builderDraft = { sport: "pickleball", tournamentType: "mixed-doubles", scoringMode: "official" };
+
+const SPORT_RULE_PRESETS = {
+  tennis: { name: "Tennis", events: ["mens-singles", "womens-singles", "mens-doubles", "womens-doubles", "mixed-doubles"], defaults: { scoringSystem: "traditional-tennis", matchFormat: "best-of-3-sets", sets: 3, gamesPerSet: 6, winBy: 2, tieBreak: true, tieBreakAt: "6-6", tieBreakPoints: 7, finalSetSuperTieBreak: false, noAd: false, rallyPoint: false, serviceRules: "standard", courtChanges: "standard" }, editable: ["sets", "gamesPerSet", "tieBreak", "tieBreakPoints", "finalSetSuperTieBreak", "noAd", "rallyPoint"] },
+  padel: { name: "Padel", events: ["mens-doubles", "womens-doubles", "mixed-doubles"], defaults: { scoringSystem: "traditional-tennis", matchFormat: "best-of-3-sets", sets: 3, gamesPerSet: 6, winBy: 2, tieBreak: true, tieBreakAt: "6-6", tieBreakPoints: 7, goldenPoint: false, rallyPoint: false, serviceRules: "standard-padel" }, editable: ["sets", "gamesPerSet", "tieBreak", "tieBreakPoints", "goldenPoint", "rallyPoint"] },
+  pickleball: { name: "Pickleball", events: ["mens-singles", "womens-singles", "mens-doubles", "womens-doubles", "mixed-doubles"], defaults: { scoringSystem: "official-pickleball", matchFormat: "best-of-3-games", bestOf: 3, targetScore: 11, winBy: 2, maximumCap: null, rallyScoring: false, serviceRules: "official-side-out" }, editable: ["bestOf", "targetScore", "winBy", "maximumCap", "rallyScoring", "serviceRules"] },
+  badminton: { name: "Badminton", events: ["mens-singles", "womens-singles", "mens-doubles", "womens-doubles", "mixed-doubles"], defaults: { scoringSystem: "rally", matchFormat: "best-of-3-games", bestOf: 3, targetScore: 21, winBy: 2, maximumCap: 30, serviceRules: "official-bwf" }, editable: ["bestOf", "targetScore", "winBy", "maximumCap", "serviceRules"] },
+  "table-tennis": { name: "Table Tennis", events: ["mens-singles", "womens-singles", "mens-doubles", "womens-doubles", "mixed-doubles"], defaults: { scoringSystem: "rally", matchFormat: "best-of-5-games", bestOf: 5, targetScore: 11, winBy: 2, serviceRotationFrequency: 2, serviceRules: "official-ittf" }, editable: ["bestOf", "targetScore", "winBy", "serviceRotationFrequency"] },
+};
+const EVENT_LABELS = { "mens-singles": "Men's Singles", "womens-singles": "Women's Singles", "mens-doubles": "Men's Doubles", "womens-doubles": "Women's Doubles", "mixed-doubles": "Mixed Doubles" };
 let loginStep = "tournament";
 
 // Settings and Preferences (Sync with LocalStorage)
@@ -49,7 +59,7 @@ window.addEventListener("DOMContentLoaded", () => {
 });
 
 function showOnlyScreen(screenId) {
-  ["home-screen", "login-screen", "dashboard-screen"].forEach((id) => {
+  ["welcome-screen", "home-screen", "login-screen", "dashboard-screen"].forEach((id) => {
     document.getElementById(id)?.classList.toggle("hidden", id !== screenId);
   });
   window.scrollTo({ top: 0, behavior: "auto" });
@@ -589,7 +599,16 @@ function loginSuccess(court, userId) {
   onMatchesDataChanged(matchesCache);
 }
 
+function continueFromWelcome() {
+  localStorage.setItem("aceo_welcome_seen", "true");
+  showOnlyScreen("home-screen");
+}
+
 function checkAutologin() {
+  if (localStorage.getItem("aceo_welcome_seen") !== "true") {
+    showOnlyScreen("welcome-screen");
+    return;
+  }
   const savedCourt = localStorage.getItem("saved_court");
   const savedUid = localStorage.getItem("saved_uid");
   
@@ -627,7 +646,7 @@ function switchTab(tabId) {
   const title = document.getElementById("referee-court-title");
   const subtitle = document.getElementById("referee-round-title");
   if (currentCourt === "admin") {
-    if (title) title.textContent = tabId === "builder" ? "TOURNAMENT BUILDER" : tabId === "players" ? "PLAYER DIRECTORY" : "ADMIN DASHBOARD";
+    if (title) title.textContent = tabId === "builder" ? "TOURNAMENT BUILDER" : tabId === "players" ? "PLAYER DIRECTORY" : tabId === "player-schedules" ? "PLAYER SCHEDULES" : "ADMIN DASHBOARD";
     if (subtitle) subtitle.textContent = tabId === "admin" ? "TOURNAMENT OPERATIONS" : "ADMINISTRATION";
   } else if (tabId === "matches") {
     if (title) title.textContent = `COURT ${currentCourt} REFEREE`;
@@ -1699,20 +1718,136 @@ function triggerEndEvent() {
 }
 
 function openTournamentBuilder() {
-  alert("Tournament Builder requires the shared Postgres server connection.");
+  workflowIntent = "create";
+  switchTab("builder");
+  initializeTournamentBuilder();
 }
-function showBuilderStep() {}
-function saveTournamentConfiguration() {}
-function saveTournamentPlayers() {}
-function generateBuilderFixtures() {}
-function publishBuilderTournament() {}
+
+function initializeTournamentBuilder() {
+  renderSportChoices();
+  setupPresetButtons();
+  applyOfficialRulePreset();
+  showBuilderStep("details");
+}
+
+const BUILDER_STEPS = ["details", "sport", "event", "count", "players", "format", "courts", "scoring", "preview", "publish"];
+const BUILDER_STEP_NAMES = ["Tournament Details", "Choose Sport", "Choose Event", "Player Count", "Player Names", "Tournament Format", "Courts", "Scoring Rules", "Review", "Publish"];
+function showBuilderStep(step = "details") {
+  const sectionStep = { event: "type", count: "details", courts: "details" }[step] || step;
+  document.querySelectorAll(".builder-step").forEach((section) => section.classList.toggle("active", section.id === `builder-${sectionStep}-step`));
+  const index = Math.max(0, BUILDER_STEPS.indexOf(step));
+  document.getElementById("builder-step-count").textContent = `Step ${index + 1} of ${BUILDER_STEPS.length}`;
+  document.getElementById("builder-step-name").textContent = BUILDER_STEP_NAMES[index] || "Tournament Builder";
+  document.querySelector(".progress-track")?.setAttribute("aria-valuenow", String(index + 1));
+  const bar = document.getElementById("builder-progress-bar");
+  if (bar) bar.style.width = `${((index + 1) / BUILDER_STEPS.length) * 100}%`;
+}
+function setupPresetButtons() {
+  document.querySelectorAll(".preset-grid").forEach((grid) => {
+    if (grid.dataset.ready) return;
+    grid.dataset.ready = "true";
+    const input = document.getElementById(grid.dataset.presetFor);
+    String(grid.dataset.values || "").split(",").forEach((value) => {
+      const button = document.createElement("button");
+      button.type = "button"; button.className = "preset-pill"; button.textContent = grid.dataset.presetFor === "builder-court-count" ? ["①","②","③","④"][Number(value)-1] || value : value;
+      button.onclick = () => { input.value = value; input.classList.add("hidden"); grid.querySelectorAll("button").forEach((b) => b.classList.remove("active")); button.classList.add("active"); };
+      grid.appendChild(button);
+      if (input && input.value === value) button.classList.add("active");
+    });
+    if (grid.dataset.custom === "true") {
+      const custom = document.createElement("button"); custom.type = "button"; custom.className = "preset-pill"; custom.textContent = "Custom";
+      custom.onclick = () => { input.classList.remove("hidden"); input.focus(); grid.querySelectorAll("button").forEach((b) => b.classList.remove("active")); custom.classList.add("active"); };
+      grid.appendChild(custom);
+    }
+  });
+}
+function renderSportChoices() {
+  const target = document.getElementById("builder-sport-options"); if (!target) return;
+  target.innerHTML = Object.entries(SPORT_RULE_PRESETS).map(([id, sport]) => `<button class="choice-card" data-sport="${id}" onclick="selectSport('${id}')"><strong>${sport.name}</strong><small>Official preset + supported events</small></button>`).join("");
+}
+function selectSport(sport) {
+  builderDraft.sport = sport;
+  document.querySelectorAll("[data-sport]").forEach((button) => button.classList.toggle("selected", button.dataset.sport === sport));
+  document.getElementById("builder-sport-continue").disabled = false;
+  renderEventChoices(); applyOfficialRulePreset();
+}
+function renderEventChoices() {
+  const stack = document.querySelector("#builder-type-step .choice-stack"); if (!stack) return;
+  const sport = SPORT_RULE_PRESETS[builderDraft.sport] || SPORT_RULE_PRESETS.pickleball;
+  stack.innerHTML = sport.events.map((event) => `<button class="choice-card" data-tournament-type="${event}" onclick="selectTournamentType('${event}')"><strong>${EVENT_LABELS[event] || event}</strong><small>${sport.name} event</small></button>`).join("");
+}
+function selectTournamentType(type = "mixed-doubles") {
+  builderDraft.tournamentType = type;
+  document.querySelectorAll("[data-tournament-type]").forEach((button) => button.classList.toggle("selected", button.dataset.tournamentType === type));
+  document.getElementById("builder-type-continue").disabled = false;
+}
+function continueTournamentType() { showBuilderStep("players"); }
+function applyOfficialRulePreset() {
+  const sport = SPORT_RULE_PRESETS[builderDraft.sport] || SPORT_RULE_PRESETS.pickleball;
+  builderDraft.ruleConfiguration = { mode: builderDraft.scoringMode || "official", sport: builderDraft.sport, ...sport.defaults };
+  const points = document.getElementById("builder-points-to-win"); if (points && sport.defaults.targetScore) points.value = sport.defaults.targetScore;
+  const winBy = document.getElementById("builder-win-by"); if (winBy && sport.defaults.winBy) winBy.value = sport.defaults.winBy;
+  renderScoringConfiguration();
+}
+function updateScoringMode() { builderDraft.scoringMode = document.querySelector('input[name="builder-scoring-mode"]:checked')?.value || "official"; renderScoringConfiguration(); }
+function renderScoringConfiguration() {
+  const sport = SPORT_RULE_PRESETS[builderDraft.sport] || SPORT_RULE_PRESETS.pickleball;
+  const summary = document.getElementById("official-rules-summary");
+  if (summary) summary.innerHTML = `<strong>${sport.name} official preset</strong><p>${Object.entries(sport.defaults).map(([k,v]) => `${k}: ${v ?? "none"}`).join(" · ")}</p>`;
+  const common = document.getElementById("scoring-common-settings");
+  if (common) common.innerHTML = sport.editable.slice(0, 5).map((key) => `<label class="setup-field"><span>${key.replace(/([A-Z])/g, " $1")}</span><input class="form-input" data-rule-key="${key}" value="${sport.defaults[key] ?? ""}" /></label>`).join("");
+  document.getElementById("scoring-advanced-settings")?.classList.toggle("hidden", builderDraft.scoringMode !== "custom");
+  const advanced = document.getElementById("scoring-advanced-content");
+  if (advanced) advanced.innerHTML = Object.keys(sport.defaults).map((key) => `<label class="setup-field"><span>${key.replace(/([A-Z])/g, " $1")}</span><input class="form-input" data-rule-key="${key}" value="${sport.defaults[key] ?? ""}" /></label>`).join("");
+}
+function saveTournamentConfiguration() { showBuilderStep("preview"); }
+function saveTournamentPlayers() { populateBuilderFormats(); showBuilderStep("format"); }
+function populateBuilderFormats() { const select = document.getElementById("builder-format"); if (select && !select.options.length && window.TOURNAMENT_FORMATS) window.TOURNAMENT_FORMATS.forEach((f) => select.add(new Option(f.replace(/-/g, " "), f))); }
+function showFormatInformation() {}
+function confirmTournamentFormat() { showBuilderStep("courts"); }
+function generateBuilderFixtures() { showBuilderStep("preview"); }
+function publishBuilderTournament() { showBuilderStep("publish"); }
 function openPlayersPage() {}
 function savePlayerDirectory() {}
 function editTournamentDraft() {}
 function archiveTournamentById() {}
-function selectTournamentType() {}
-function showFormatInformation() {}
-function confirmTournamentFormat() {}
+
+function allPlayerNamesFromMatches() {
+  return [...new Set(Object.values(matchesCache).flatMap((match) => [...(match.teamA || match.team_a || []), ...(match.teamB || match.team_b || [])]))].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+}
+function openPlayerSchedules() {
+  switchTab("player-schedules");
+  const select = document.getElementById("player-schedule-select");
+  if (!select) return;
+  const players = allPlayerNamesFromMatches();
+  select.innerHTML = players.map((name) => `<option value="${escapeMarkup(name)}">${escapeMarkup(name)}</option>`).join("");
+  renderSelectedPlayerSchedule();
+}
+function playerMatchRole(match, player) {
+  const teamA = match.teamA || match.team_a || []; const teamB = match.teamB || match.team_b || [];
+  const onA = teamA.includes(player); const own = onA ? teamA : teamB; const opponents = onA ? teamB : teamA;
+  return { partner: own.filter((name) => name !== player).join(" / ") || "Singles", opponents: opponents.join(" / "), onA };
+}
+function buildPlayerScheduleText(player) {
+  const tournamentName = activeTournament?.name || "Tournament";
+  const matches = Object.values(matchesCache).filter((m) => [...(m.teamA || m.team_a || []), ...(m.teamB || m.team_b || [])].includes(player)).sort((a,b) => Number(a.round)-Number(b.round) || Number(a.court)-Number(b.court));
+  return [`${player}`, `Tournament: ${tournamentName}`, "", ...matches.map((match) => { const role = playerMatchRole(match, player); const score = match.status === "finalized" ? `Final score: ${match.teamAScore || 0}-${match.teamBScore || 0}` : `Estimated start: ${match.time || match.scheduled_time || "TBD"}`; return `Round ${match.round} · Court ${match.court}
+${score}
+Partner: ${role.partner}
+Opponents: ${role.opponents}
+Status: ${match.status || "waiting"}`; })].join("\n\n");
+}
+function renderSelectedPlayerSchedule() {
+  const player = document.getElementById("player-schedule-select")?.value; const card = document.getElementById("player-schedule-card"); if (!player || !card) return;
+  const matches = Object.values(matchesCache).filter((m) => [...(m.teamA || m.team_a || []), ...(m.teamB || m.team_b || [])].includes(player)).sort((a,b) => Number(a.round)-Number(b.round) || Number(a.court)-Number(b.court));
+  card.innerHTML = `<div class="player-schedule-hero"><div><h4>${escapeMarkup(player)}</h4><p>Tournament: ${escapeMarkup(activeTournament?.name || "Current Tournament")}</p></div><button class="btn btn-primary sticky-share" onclick="sharePlayerSchedule('${escapeMarkup(player)}')"><i data-lucide="share-2"></i> Share</button></div>${matches.map((match) => { const role = playerMatchRole(match, player); const finalized = match.status === "finalized"; const won = finalized && ((role.onA && Number(match.teamAScore) > Number(match.teamBScore)) || (!role.onA && Number(match.teamBScore) > Number(match.teamAScore))); return `<article class="itinerary-card"><div class="itinerary-topline"><strong>Round ${match.round}</strong><span class="match-card-status status-${match.status || "scheduled"}">${match.status || "waiting"}</span></div><div class="itinerary-court">Court ${match.court}</div><div class="itinerary-time">${match.time || match.scheduled_time || "Waiting for previous matches"}</div><dl><dt>Partner</dt><dd>${escapeMarkup(role.partner)}</dd><dt>Opponents</dt><dd>${escapeMarkup(role.opponents)}</dd>${finalized ? `<dt>Final score</dt><dd>${match.teamAScore || 0}-${match.teamBScore || 0} · ${won ? "Won" : "Lost"}</dd><dt>Completed</dt><dd>${match.finalizedAt ? new Date(match.finalizedAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : "Completed"}</dd>` : ""}</dl></article>`; }).join("") || `<div class="empty-state">No scheduled matches for this player yet.</div>`}`;
+  initLucide();
+}
+async function sharePlayerSchedule(player) {
+  const text = buildPlayerScheduleText(player);
+  if (navigator.share) return navigator.share({ title: `${player} schedule`, text }).catch(() => navigator.clipboard?.writeText(text));
+  await navigator.clipboard?.writeText(text); alert("Player schedule copied to clipboard.");
+}
 
 // 14. REPORT CSV EXPORT
 function downloadMatchesCSV() {

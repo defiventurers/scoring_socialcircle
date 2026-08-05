@@ -1469,7 +1469,7 @@ header {
   }
   
   /* Desktop displays the remaining panels nicely or as full tabs */
-  #matches-panel, #rules-panel, #admin-panel, #builder-panel, #players-panel {
+  #matches-panel, #rules-panel, #admin-panel, #builder-panel, #players-panel, #player-schedules-panel {
     grid-column: 1 / span 2;
     background: white;
     border: 1px solid var(--border-color);
@@ -1479,7 +1479,7 @@ header {
     display: none !important;
   }
   
-  #matches-panel.active, #rules-panel.active, #admin-panel.active, #builder-panel.active, #players-panel.active {
+  #matches-panel.active, #rules-panel.active, #admin-panel.active, #builder-panel.active, #players-panel.active, #player-schedules-panel.active {
     display: flex !important;
   }
   
@@ -1602,7 +1602,7 @@ body:not(.development) #connection-bar { display: none; }
   .main-panels { display: block !important; padding: 24px; }
   .tab-panel { display: none !important; padding: 0; }
   .tab-panel.active { display: flex !important; }
-  #score-panel.active, #matches-panel.active, #leaderboard-panel.active, #rules-panel.active, #admin-panel.active, #builder-panel.active, #players-panel.active { display: flex !important; max-height: none; grid-column: auto; }
+  #score-panel.active, #matches-panel.active, #leaderboard-panel.active, #rules-panel.active, #admin-panel.active, #builder-panel.active, #players-panel.active, #player-schedules-panel.active { display: flex !important; max-height: none; grid-column: auto; }
 }
 
 /* Incremental mobile tournament-operations enhancements */
@@ -1670,3 +1670,33 @@ button:focus-visible, input:focus-visible, select:focus-visible, [role="button"]
   .sticky-actions { margin-left: -2px; margin-right: -2px; }
   .admin-table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 }
+
+/* Aceo welcome and incremental tournament-builder enhancements */
+.welcome-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: linear-gradient(160deg, var(--primary-green), #123f34 55%, #f8f1df); }
+.welcome-card { width: min(100%, 420px); padding: 34px 24px; border-radius: 28px; background: rgba(255,255,255,0.94); box-shadow: 0 22px 60px rgba(0,0,0,0.18); text-align: center; }
+.welcome-brand { font-size: clamp(54px, 16vw, 82px); line-height: 0.95; font-weight: 900; color: var(--primary-green); letter-spacing: -0.08em; }
+.welcome-byline { margin-top: 12px; font-weight: 800; color: var(--text-dark); }
+.welcome-link { display: inline-block; margin-top: 6px; color: var(--primary-green); font-weight: 700; text-decoration: none; }
+.welcome-tagline { margin: 26px auto; max-width: 300px; color: var(--text-muted); font-size: 17px; line-height: 1.45; }
+.welcome-continue { width: 100%; min-height: 56px; font-size: 17px; }
+.choice-card.selected, .preset-pill.active, .radio-card:has(input:checked) { border-color: var(--primary-green); background: rgba(14, 58, 47, 0.08); box-shadow: inset 0 0 0 1px var(--primary-green); }
+.preset-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+.preset-pill { min-width: 58px; min-height: 48px; border: 1px solid var(--border-color); border-radius: 14px; background: white; color: var(--text-dark); font-weight: 800; font-size: 16px; }
+.scoring-mode-card { display: grid; gap: 12px; margin-bottom: 16px; }
+.radio-card { display: flex; gap: 12px; align-items: center; padding: 16px; border: 1px solid var(--border-color); border-radius: 16px; background: white; }
+.radio-card span { display: grid; gap: 4px; }
+.radio-card small { color: var(--text-muted); }
+.player-schedule-shell { max-width: 560px; }
+.player-schedule-card { display: grid; gap: 14px; padding-bottom: 90px; }
+.player-schedule-hero { position: sticky; top: 0; z-index: 3; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px; border-radius: 20px; background: var(--primary-green); color: white; box-shadow: 0 10px 30px rgba(0,0,0,0.16); }
+.player-schedule-hero h4 { margin: 0; font-size: 24px; }
+.player-schedule-hero p { margin: 4px 0 0; opacity: 0.86; }
+.sticky-share { flex: 0 0 auto; border: 2px solid rgba(255,255,255,0.45); }
+.itinerary-card { padding: 18px; border: 1px solid var(--border-color); border-radius: 22px; background: white; box-shadow: 0 8px 24px rgba(0,0,0,0.06); }
+.itinerary-topline { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.itinerary-court { margin-top: 12px; font-size: 26px; font-weight: 900; color: var(--primary-green); }
+.itinerary-time { margin: 4px 0 12px; font-weight: 800; color: var(--text-dark); }
+.itinerary-card dl { display: grid; grid-template-columns: 92px 1fr; gap: 8px 12px; margin: 0; }
+.itinerary-card dt { color: var(--text-muted); font-size: 12px; text-transform: uppercase; font-weight: 800; }
+.itinerary-card dd { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
+@media (max-width: 640px) { .player-schedule-hero { align-items: stretch; flex-direction: column; } .sticky-share { width: 100%; } }

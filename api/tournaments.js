@@ -12,7 +12,7 @@ import {
   saveTournamentDraft,
 } from './_lib/db.js';
 import { methodNotAllowed, parseJsonBody, sendJson } from './_lib/http.js';
-import { TOURNAMENT_FORMATS, TOURNAMENT_TYPES, getFormatDefinitions, validateRosterForTournament } from './_lib/tournament-rules.js';
+import { SPORT_RULE_PRESETS, TOURNAMENT_FORMATS, TOURNAMENT_TYPES, buildScoringConfiguration, getFormatDefinitions, validateRosterForTournament } from './_lib/tournament-rules.js';
 
 function tournamentIdFrom(value) {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -44,6 +44,9 @@ function normalizedDraft(body, id) {
     winBy: Math.max(1, Math.min(10, Math.round(number(body.winBy, 1)))),
     settings: {
       ...settingsInput,
+      sport: SPORT_RULE_PRESETS[settingsInput.sport || body.sport] ? (settingsInput.sport || body.sport) : 'pickleball',
+      scoringMode: settingsInput.scoringMode || body.scoringMode || 'official',
+      ruleConfiguration: buildScoringConfiguration({ sport: settingsInput.sport || body.sport || 'pickleball', mode: settingsInput.scoringMode || body.scoringMode || 'official', overrides: settingsInput.ruleOverrides || {} }),
       numberOfRounds,
       roundDurationMinutes,
       intervalMinutes,
@@ -81,9 +84,10 @@ export default async function handler(req, res) {
           formats: TOURNAMENT_FORMATS,
           formatDefinitions: getFormatDefinitions(),
           tournamentTypes: TOURNAMENT_TYPES,
+          sportRulePresets: SPORT_RULE_PRESETS,
         });
       }
-      return sendJson(res, 200, { tournaments: await listTournaments(), formats: TOURNAMENT_FORMATS, formatDefinitions: getFormatDefinitions(), tournamentTypes: TOURNAMENT_TYPES });
+      return sendJson(res, 200, { tournaments: await listTournaments(), formats: TOURNAMENT_FORMATS, formatDefinitions: getFormatDefinitions(), tournamentTypes: TOURNAMENT_TYPES, sportRulePresets: SPORT_RULE_PRESETS });
     }
 
     if (session.role !== 'admin') {

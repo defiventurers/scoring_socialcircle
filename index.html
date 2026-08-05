@@ -29,7 +29,17 @@
         <div id="firebase-mode-badge" class="font-mono text-xs">Local Demo Mode</div>
       </div>
 
-      <main id="home-screen" class="screen home-screen">
+      <main id="welcome-screen" class="screen welcome-screen">
+        <section class="welcome-card" aria-label="Welcome to Aceo">
+          <div class="welcome-brand">Aceo</div>
+          <div class="welcome-byline">by av1dandsouza</div>
+          <a class="welcome-link" href="https://x.com/defiouza" target="_blank" rel="noopener">x.com/defiouza</a>
+          <p class="welcome-tagline">Create. Organize. Score. Run tournaments effortlessly.</p>
+          <button class="btn btn-primary welcome-continue" onclick="continueFromWelcome()">Continue</button>
+        </section>
+      </main>
+
+      <main id="home-screen" class="screen home-screen hidden">
         <div class="home-actions" aria-label="Choose a workflow">
           <button class="home-action home-action-primary" onclick="startCreateTournamentFlow()"><i data-lucide="plus-circle"></i><span>Create Tournament</span><i data-lucide="chevron-right"></i></button>
           <button class="home-action" onclick="startDashboardFlow()"><i data-lucide="layout-dashboard"></i><span>Tournament Dashboard</span><i data-lucide="chevron-right"></i></button>
@@ -319,6 +329,9 @@
                 <button class="btn-admin-action" onclick="openPlayersPage()">
                   <i data-lucide="users" style="width: 14px; height: 14px;"></i> Players
                 </button>
+                <button class="btn-admin-action" onclick="openPlayerSchedules()">
+                  <i data-lucide="share-2" style="width: 14px; height: 14px;"></i> Player Schedules
+                </button>
                 <button class="btn-admin-action" onclick="downloadMatchesCSV()">
                   <i data-lucide="download" style="width: 14px; height: 14px;"></i> Matches CSV
                 </button>
@@ -364,6 +377,14 @@
             </div>
           </div>
 
+          <div id="player-schedules-panel" class="tab-panel">
+            <div class="builder-shell player-schedule-shell">
+              <div class="builder-header"><div><div class="setup-eyebrow">Player Itineraries</div><h3>Player Schedule</h3></div><button class="btn btn-outline" onclick="switchTab('admin')">Back</button></div>
+              <label class="setup-field"><span>Player</span><select id="player-schedule-select" class="form-input" onchange="renderSelectedPlayerSchedule()"></select></label>
+              <div id="player-schedule-card" class="player-schedule-card"></div>
+            </div>
+          </div>
+
           <!-- ======================================== -->
           <!-- F. ADMIN TOURNAMENT BUILDER -->
           <!-- ======================================== -->
@@ -371,18 +392,25 @@
             <div class="builder-shell">
               <div class="builder-header"><div><div class="setup-eyebrow">Tournament Builder</div><h3 id="builder-title">Create Tournament</h3></div></div>
               <div class="wizard-progress" aria-live="polite">
-                <div class="wizard-progress-copy"><strong id="builder-step-count">Step 1 of 7</strong><span id="builder-step-name">Tournament type</span></div>
-                <div class="progress-track" role="progressbar" aria-valuemin="1" aria-valuemax="7" aria-valuenow="1"><span id="builder-progress-bar"></span></div>
+                <div class="wizard-progress-copy"><strong id="builder-step-count">Step 1 of 10</strong><span id="builder-step-name">Tournament Details</span></div>
+                <div class="progress-track" role="progressbar" aria-valuemin="1" aria-valuemax="10" aria-valuenow="1"><span id="builder-progress-bar"></span></div>
               </div>
 
-              <section id="builder-type-step" class="builder-step active">
-                <h4>Choose tournament type</h4>
+              <section id="builder-sport-step" class="builder-step">
+                <h4>Choose sport</h4>
+                <p class="builder-help">Pick the sport first so Aceo can load the right event types and official scoring defaults.</p>
+                <div id="builder-sport-options" class="choice-stack sport-choice-stack"></div>
+                <div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('details')">Previous</button><button id="builder-sport-continue" class="btn btn-primary" onclick="showBuilderStep('event')" disabled>Continue</button></div>
+              </section>
+
+              <section id="builder-type-step" class="builder-step">
+                <h4>Choose event</h4>
                 <div class="choice-stack">
                   <button class="choice-card" data-tournament-type="mixed-doubles" onclick="selectTournamentType('mixed-doubles')"><strong>Mixed Doubles</strong><small>One man and one woman per team</small></button>
                   <button class="choice-card" data-tournament-type="mens-doubles" onclick="selectTournamentType('mens-doubles')"><strong>Men's Doubles</strong><small>Men's roster and teams</small></button>
                   <button class="choice-card" data-tournament-type="womens-doubles" onclick="selectTournamentType('womens-doubles')"><strong>Women's Doubles</strong><small>Women's roster and teams</small></button>
                 </div>
-                <div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="goBackInWorkflow()">Previous</button><button id="builder-type-continue" class="btn btn-primary" onclick="continueTournamentType()" disabled>Continue</button></div>
+                <div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('sport')">Previous</button><button id="builder-type-continue" class="btn btn-primary" onclick="continueTournamentType()" disabled>Continue</button></div>
               </section>
 
               <section id="builder-format-step" class="builder-step">
@@ -391,12 +419,12 @@
                   <summary>About this format</summary>
                   <div id="format-info-content"></div>
                 </details>
-                <div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('type')">Previous</button><button class="btn btn-primary" onclick="confirmTournamentFormat()">Continue</button></div>
+                <div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('players')">Previous</button><button class="btn btn-primary" onclick="confirmTournamentFormat()">Continue</button></div>
               </section>
 
-              <section id="builder-details-step" class="builder-step">
-                <h4>Tournament settings</h4>
-                <p class="builder-help">Set the rules once. Every court and timer will use these values.</p>
+              <section id="builder-details-step" class="builder-step active">
+                <h4>Tournament details</h4>
+                <p class="builder-help">Start with the basics. Player counts, courts and scoring are confirmed in focused steps next.</p>
                 <div class="settings-grid">
                   <label class="setup-field field-wide"><span>Tournament name</span><input id="builder-name" class="form-input" placeholder="Summer Social" autocomplete="off" /><small id="builder-name-error" class="field-error hidden"></small></label>
                   <label class="setup-field field-wide"><span>Players</span><div class="preset-grid" data-preset-for="builder-player-count" data-values="8,12,16,20,24,32" data-custom="true"></div><input id="builder-player-count" class="form-input preset-custom-input hidden" type="number" inputmode="numeric" min="4" max="40" step="2" value="16" /></label>
@@ -416,11 +444,24 @@
                   <label class="toggle-row"><span><strong>Time-limit results</strong><small>Allow a leading score to be finalized when time expires.</small></span><input id="builder-time-limit-results" type="checkbox" checked /></label>
                 </div></details>
                 <div id="builder-settings-error" class="action-message error hidden" role="alert"></div>
-                <div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('format')">Previous</button><button id="builder-save-settings" class="btn btn-primary" onclick="saveTournamentConfiguration()">Continue</button></div>
+                <div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="goBackInWorkflow()">Previous</button><button id="builder-save-settings" class="btn btn-primary" onclick="showBuilderStep('sport')">Continue</button></div>
               </section>
 
-              <section id="builder-players-step" class="builder-step"><h4>Players</h4><p class="builder-help">Confirm the roster. Permanent labels never change; display names are optional.</p><div id="builder-player-grid" class="player-assignment-grid"></div><div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('details')">Previous</button><button id="builder-save-players" class="btn btn-primary" onclick="saveTournamentPlayers()">Continue</button></div></section>
-              <section id="builder-fixtures-step" class="builder-step"><h4>Generate fixtures</h4><div id="builder-assignment-summary" class="setup-note"></div><p class="builder-help">Create the draft schedule, then review every matchup before publishing.</p><div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('players')">Previous</button><button id="builder-generate" class="btn btn-primary" onclick="generateBuilderFixtures()">Generate Fixtures</button></div></section>
+              <section id="builder-scoring-step" class="builder-step">
+                <h4>Scoring rules</h4>
+                <p class="builder-help">Official Rules are selected by default. Customize Rules reveals the full configuration already supported by this tournament.</p>
+                <div class="scoring-mode-card">
+                  <label class="radio-card"><input type="radio" name="builder-scoring-mode" value="official" checked onchange="updateScoringMode()" /><span><strong>Use Official Rules</strong><small>Recommended preset for the selected sport with common adjustments.</small></span></label>
+                  <label class="radio-card"><input type="radio" name="builder-scoring-mode" value="custom" onchange="updateScoringMode()" /><span><strong>Customize Rules</strong><small>Show all applicable scoring and match controls.</small></span></label>
+                </div>
+                <div id="official-rules-summary" class="format-info-card"></div>
+                <div id="scoring-common-settings" class="settings-grid scoring-settings-grid"></div>
+                <details id="scoring-advanced-settings" class="format-info-card advanced-options"><summary>Full scoring configuration</summary><div id="scoring-advanced-content" class="settings-grid"></div></details>
+                <div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('courts')">Previous</button><button class="btn btn-primary" onclick="saveTournamentConfiguration()">Continue</button></div>
+              </section>
+
+              <section id="builder-players-step" class="builder-step"><h4>Player names</h4><p class="builder-help">Confirm the roster. Permanent labels never change; display names are optional.</p><div id="builder-player-grid" class="player-assignment-grid"></div><div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('event')">Previous</button><button id="builder-save-players" class="btn btn-primary" onclick="saveTournamentPlayers()">Continue</button></div></section>
+              <section id="builder-fixtures-step" class="builder-step"><h4>Generate fixtures</h4><div id="builder-assignment-summary" class="setup-note"></div><p class="builder-help">Create the draft schedule, then review every matchup before publishing.</p><div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('scoring')">Previous</button><button id="builder-generate" class="btn btn-primary" onclick="generateBuilderFixtures()">Generate Fixtures</button></div></section>
               <section id="builder-preview-step" class="builder-step"><h4>Preview fixtures</h4><div id="builder-preview-summary" class="setup-note"></div><div id="builder-preview-list" class="fixture-preview"></div><div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('fixtures')">Previous</button><button class="btn btn-primary" onclick="showBuilderStep('publish')">Continue</button></div></section>
               <section id="builder-publish-step" class="builder-step"><h4>Ready to publish</h4><div id="builder-publish-summary" class="publish-summary"></div><p class="builder-help">Publishing makes this tournament available to referee devices and locks fixture generation.</p><div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('preview')">Previous</button><button id="builder-publish" class="btn btn-primary" onclick="publishBuilderTournament()">Publish Tournament</button></div></section>
               <div id="builder-message" class="action-message hidden" role="status" aria-live="polite"></div>
