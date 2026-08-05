@@ -23,6 +23,15 @@ response. Do not make the production dashboard combine `/api/matches`, `/api/cou
 and `/api/fixtures`: the existing one-second poll in `firebase-config.js:235-287`
 should receive one internally consistent snapshot.
 
+“Internally consistent” requires one authoritative read set. Fetch tournament, matches,
+roster, and courts under one repeatable-read transaction (or equivalent database snapshot),
+then calculate both leaderboard and operations from those exact in-memory rows. The current
+sequence is not sufficient: `api/matches.js:35-40` reads matches, then `getLeaderboard()`
+re-reads tournament, matches, and roster through `api/_lib/db.js:553-558`, so a concurrent
+score write can mix versions. If the serverless database client cannot expose a repeatable
+snapshot, the API must label the payload eventually consistent and clients must not treat
+its revision as an atomic snapshot.
+
 ## Existing match contract and required additions
 
 Existing match fields come from `api/_lib/db.js:240-294`:
@@ -39,7 +48,11 @@ type ExistingMatch = {
   teamAScore: number;
   teamBScore: number;
   status: "scheduled" | "active" | "finalized";
-  scoreHistory: Array<{ teamAScore: number; teamBScore: number }>;
+  scoreHistory: Array<{
+    teamAScore: number;
+    teamBScore: number;
+    scoreState?: Record<string, unknown>;
+  }>;
   startedAt: string | null;
   finalizedAt: string | null;
   finalizedBy: string | null;
@@ -73,8 +86,10 @@ a stage number alone cannot explain which upstream result blocks a match.
 ```ts
 type OperationsSnapshot = {
   asOf: string;               // same instant as serverTime
-  revision: string;           // max match version/update plus progression version
-  phase: "not-started" | "in-progress" | "awaiting-progression" | "complete";
+  revision: string;           // monotonic tournament-wide operations revision
+  consistency: "atomic" | "eventual";
+  lifecycleStatus: "draft" | "published" | "archived";
+  phase: "not-started" | "in-progress" | "awaiting-progression" | "complete" | "ended-incomplete";
   progress: {
     generated: number;
     finalized: number;
@@ -105,9 +120,19 @@ type OperationsSnapshot = {
 ```
 
 Implement `deriveTournamentOperations(tournament, matches, roster, courts, now)` in a
-new `api/_lib/tournament-operations.js`; call it from `api/matches.js:35-42` after
-progression and leaderboard calculation. Return the same snapshot after successful
-writes from `api/match-action.js:347-352` to avoid a transient stale dashboard.
+new `api/_lib/tournament-operations.js`. In `api/matches.js:35-42`, load one shared
+repeatable-read snapshot and pass the same rows to
+`calculateLeaderboardForTournament(tournament, matches, roster)` and
+`deriveTournamentOperations(...)`; do not call `getLeaderboard()` because it re-reads the
+database. Return the same snapshot after successful writes from
+`api/match-action.js:347-352` to avoid a transient stale dashboard.
+
+`revision` must not be `max(match.version)` or `max(updatedAt)`: unrelated snapshots can
+share that maximum, and tournament, roster, court, or progression mutations may not touch a
+match. Add a tournament-wide monotonic `operations_revision` incremented transactionally by
+every mutation that changes snapshot inputs. A canonical hash over all normalized snapshot
+inputs is an acceptable alternative, but it is more expensive. Return `consistency: atomic`
+only when all fields came from one database snapshot.
 
 ## Exact derivations
 
@@ -141,29 +166,41 @@ generated work, not tournament completion. Never label it “tournament percent�
 format engine exposes a terminal total.
 
 ```text
+competitiveTerminal = format-specific terminal predicate over the authoritative snapshot
+phase = ended-incomplete
+  iff tournament.status = archived AND competitiveTerminal is false
 phase = complete
-  iff tournament.status = archived OR format-specific terminal state is true
+  iff competitiveTerminal is true
 phase = awaiting-progression
-  iff adaptive AND all matches in max(stage(M)) finalized AND terminal state is false
+  iff tournament.status = published AND adaptive AND
+      all matches in max(stage(M)) finalized AND competitiveTerminal is false
 phase = in-progress
-  iff |A| > 0 OR |F| > 0
+  iff tournament.status = published AND (|A| > 0 OR |F| > 0)
 phase = not-started otherwise
 ```
 
-Archival is an operator lifecycle action, not proof that every match was played. Expose
-both `phase` and tournament status.
+Lifecycle and competitive completion are separate. An administrator can archive through
+`firebase-config.js:987-1001` while unfinished matches remain, so `archived` alone must
+never mean competitively complete. Return `lifecycleStatus` alongside `phase`; a future
+explicit cancellation lifecycle can replace `ended-incomplete` if cancellation reasons are
+persisted.
 
 ### Physical wave/round state
 
 For each `w` in distinct `wave(M)`:
 
 ```text
+dependenciesResolved(m) = every blockedBy/source match is finalized
+participantsFree(m) = no player in players(m) appears in another active match
+courtFree(m) = no other active match uses m.court
+ready(m) = m.status = scheduled AND dependenciesResolved(m) AND
+           participantsFree(m) AND courtFree(m)
+
 waveMatches = {m in M | wave(m) = w}
 wave.status = complete  iff every waveMatch finalized
 wave.status = active    iff any waveMatch active
-wave.status = ready     iff no active match, at least one scheduled match,
-                           and every scheduled match has no unresolved dependency
-wave.status = blocked   otherwise
+wave.status = ready     iff no waveMatch is active and at least one waveMatch is ready
+wave.status = blocked   iff unfinished waveMatches exist and none is ready
 wave.finalized = count(finalized waveMatches)
 wave.total = |waveMatches|
 ```
@@ -202,6 +239,11 @@ WHERE status = 'active';
 Court `ready` is not the same as court `available`: a court may be physically free while
 its next players are still playing elsewhere. The current UI picks the first unfinished
 match solely by court/round (`app.js:662-665`) and can therefore offer a blocked match.
+The first mutation that changes a match from `scheduled` to `active` must enforce the same
+`dependenciesResolved AND participantsFree AND courtFree` predicate transactionally;
+`readyState` is advisory display data, not authorization to score. The current scoring path
+only checks court authorization and match finalization/version at
+`api/match-action.js:99-147`.
 
 ### Player waiting/readiness
 
@@ -227,9 +269,21 @@ state(p) = unscheduled   otherwise
 `called_at`; do not infer attendance from `scheduled`. A player can also be absent from
 currently generated adaptive fixtures and still not be finished.
 
-Add another partial unique index (or equivalent transaction predicate) preventing a
-player from appearing in two active matches. The normalized `match_players` table at
-`api/_lib/db.js:131` makes this check reliable; JSON team-array scans alone are fragile.
+Player exclusivity cannot be implemented as a simple partial index on `match_players`:
+that table has no match status, PostgreSQL index predicates cannot reference
+`matches.status`, `player_id` is nullable, and legacy seeded rows omit it
+(`api/_lib/db.js:131,209-220`). Use one enforceable design:
+
+1. backfill and make `match_players.player_id` non-null, then maintain an
+   `active_player_allocations(tournament_id, player_id, match_id)` table with
+   `PRIMARY KEY (tournament_id, player_id)` in the same transaction that activates,
+   finalizes, resets, or reopens a match; or
+2. use a database trigger/locked validation that joins `match_players` to `matches` whenever
+   a match enters `active`.
+
+Application-only prechecks are insufficient under concurrent starts. The allocation or
+trigger must reject the second match atomically, and reset/reopen paths must maintain the
+same invariant.
 
 ### ETA
 
@@ -258,11 +312,19 @@ startEstimate(m) = max(
   max(estimated availability of every player in m)
 )
 finishEstimate(m) = startEstimate(m) + effectiveDuration
+resourceAvailableAfter(m) = finishEstimate(m) + intervalMinutes * 60
 ```
 
-Iterate in topological dependency order, updating court and player availability after
-each match. If dependencies are unknown, a match is adaptive and not generated, or
-`scheduleStartAt` has no date/time zone, return `null`, not a fabricated clock time.
+Process ready candidates with a deterministic resource-constrained scheduler, not merely a
+topological sort: order by `(scheduledStartAt nulls last, physicalWave, logicalStage,
+court, id)`, choose only matches whose dependencies are projected complete, then update the
+assigned court and every participant to `resourceAvailableAfter(m)`. When several matches
+become ready together, that stable order makes projections reproducible. Apply the
+configured interval/turnaround to court and player availability; fixture scheduling already
+includes it at `api/_lib/tournament-rules.js:41-47`.
+
+If dependencies are unknown, a match is adaptive and not generated, or
+`scheduledStartAt` has no date/time zone, return `null`, not a fabricated clock time.
 
 ```text
 estimatedFinishAt = max(finishEstimate(m)) for fixed, fully generated schedules
@@ -308,11 +370,20 @@ The browser timer is in-memory and match-scoped (`firebase-config.js:516-531` an
    `generatedPhysicalWaves`.
 8. An empty next generation can mean champion/terminal, invalid field shape, or a bug.
    Require each format to return `{ state, fixtures, reason }`, not `[]` for every case.
+9. `groups-knockout` is advertised in `api/_lib/tournament-rules.js:3-22`, but
+   `generateInitialFixtures()` has no `groups-knockout` branch and reaches the unsupported
+   format error at `api/_lib/tournament-rules.js:262-278`. Classify this format as
+   `unsupported` in API definitions and the dashboard until group qualification, knockout
+   fixture generation, dependencies, progression, terminal state, and ranking are
+   implemented and tested; do not fabricate operations state for it.
 
 ## Review of the concurrent live-dashboard implementation
 
 The untracked worktree currently contains `api/_lib/live-dashboard.js` and
-`api/live-dashboard.js`. Do not ship that projection unchanged:
+`api/live-dashboard.js`. Treat this endpoint as superseded by the proposed `/api/matches`
+`operations` contract: do not expose or wire it into a client until it either delegates to
+the same projector/snapshot or is removed. Two independently derived dashboard APIs would
+produce contradictory state. In particular, do not ship the current projection unchanged:
 
 1. `api/live-dashboard.js:5-14` is unauthenticated. It accepts any syntactically valid
    published tournament ID and returns teams, scores, standings, and operational state.
@@ -350,8 +421,10 @@ from raw point totals in a multi-sport tournament.
 
 ## API and implementation sequence
 
-1. Schema in `api/_lib/db.js`: add `scheduled_start_at`, progression version/state/error,
-   dependency representation, and active court/player constraints. Backfill no fake dates;
+1. Schema in `api/_lib/db.js`: add `scheduled_start_at`, monotonic
+   `operations_revision`, progression version/state/error, dependency representation, the
+   active-court constraint, and an enforceable active-player allocation/trigger. Backfill
+   `match_players.player_id` before making it non-null. Backfill no fake schedule dates;
    leave unknown schedule instants null.
 2. Rules in `api/_lib/tournament-rules.js`: expose `logicalStage`, terminal predicate,
    expected current-stage fixture count, dependency metadata, and structured progression
@@ -359,11 +432,13 @@ from raw point totals in a multi-sport tournament.
 3. Derivation in new `api/_lib/tournament-operations.js`: implement the formulas above as
    pure functions with tests covering staggered courts, multi-wave stages, byes, blocked
    players, active overlap rejection, and no-ETA cases.
-4. API in `api/matches.js`: return `operations` in the existing snapshot. Preserve current
-   fields for compatibility. Scope `api/leaderboard.js`, `api/courts.js`, and
+4. API in `api/matches.js`: read tournament/matches/roster/courts under one repeatable
+   snapshot, calculate leaderboard and `operations` from those same rows, and preserve
+   current match fields for compatibility. Scope `api/leaderboard.js`, `api/courts.js`, and
    `api/fixtures.js` with the same `canAccessTournament` authorization used by matches;
    they currently accept a client tournament ID after authentication without equivalent
-   scope checks.
+   scope checks. Remove/defer `api/live-dashboard.js`, or make it delegate to this exact
+   snapshot/projector contract.
 5. Mutation response in `api/match-action.js`: return `{ match, operations, progression }`
    and distinguish committed score state from progression recovery state.
 6. Production client in `firebase-config.js:252-260`: store `payload.operations` beside
