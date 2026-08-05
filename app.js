@@ -591,7 +591,12 @@ function loginSuccess(court, userId) {
   titleEl.textContent = court === "admin" ? "ADMIN DASHBOARD" : `COURT ${court} REFEREE`;
 
   showOnlyScreen("dashboard-screen");
-  switchTab(court === "admin" ? "admin" : "matches");
+  if (court === "admin" && workflowIntent === "create") {
+    switchTab("builder");
+    initializeTournamentBuilder();
+  } else {
+    switchTab(court === "admin" ? "admin" : "matches");
+  }
   onMatchesDataChanged(matchesCache);
 }
 
@@ -1860,8 +1865,30 @@ function publishBuilderTournament() {
   if (summary) summary.innerHTML = `<strong>${escapeMarkup(activeTournament.name)} published.</strong><p>${Object.keys(matches).length} matches are ready for referee devices.</p>`;
   showBuilderStep("publish");
 }
-function openPlayersPage() {}
-function savePlayerDirectory() {}
+function openPlayersPage() {
+  switchTab("players");
+  const grid = document.getElementById("players-directory-grid");
+  if (!grid) return;
+  const names = allPlayerNamesFromMatches();
+  const fallback = Array.from({ length: 20 }, (_, index) => `Player ${index + 1}`);
+  const players = names.length ? names : fallback;
+  grid.innerHTML = players.map((name, index) => `<label class="setup-field"><span>Player ${index + 1}</span><input class="form-input player-directory-name" data-original-name="${escapeMarkup(name)}" value="${escapeMarkup(name)}" /></label>`).join("");
+}
+function savePlayerDirectory() {
+  const inputs = Array.from(document.querySelectorAll(".player-directory-name"));
+  inputs.forEach((input) => {
+    const original = input.dataset.originalName;
+    const updated = input.value.trim();
+    if (!original || !updated || original === updated) return;
+    Object.values(matchesCache).forEach((match) => {
+      match.teamA = (match.teamA || []).map((name) => name === original ? updated : name);
+      match.teamB = (match.teamB || []).map((name) => name === original ? updated : name);
+    });
+  });
+  if (!firebaseEnabled) localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(matchesCache));
+  onMatchesDataChanged(matchesCache);
+  alert("Player names saved.");
+}
 function editTournamentDraft() {}
 function archiveTournamentById() {}
 
@@ -2008,9 +2035,10 @@ function setupPresetControls() {
     const input = document.getElementById(grid.dataset.presetFor);
     if (!input) return;
     const values = String(grid.dataset.values || "").split(",").map((value) => value.trim()).filter(Boolean);
+    const buttonLabel = (value) => grid.dataset.presetFor === "builder-court-count" ? (["①", "②", "③", "④"][Number(value) - 1] || value) : value;
     const renderActive = () => {
       grid.querySelectorAll(".preset-button").forEach((button) => {
-        const active = button.dataset.value === input.value && button.dataset.custom !== "true";
+        const active = button.dataset.value === input.value && button.dataset.custom !== "true" && input.classList.contains("hidden");
         button.classList.toggle("active", active);
         button.setAttribute("aria-pressed", String(active));
       });
@@ -2021,7 +2049,7 @@ function setupPresetControls() {
       button.className = "preset-button";
       button.dataset.value = value;
       button.setAttribute("aria-pressed", "false");
-      button.textContent = value;
+      button.textContent = buttonLabel(value);
       button.addEventListener("click", () => {
         input.value = value;
         input.classList.add("hidden");
@@ -2036,11 +2064,14 @@ function setupPresetControls() {
       custom.className = "preset-button";
       custom.dataset.custom = "true";
       custom.textContent = "Custom";
+      custom.setAttribute("aria-pressed", "false");
       custom.addEventListener("click", () => {
         input.classList.remove("hidden");
         input.focus();
-        grid.querySelectorAll(".preset-button").forEach((button) => button.classList.remove("active"));
-        custom.classList.add("active");
+        grid.querySelectorAll(".preset-button").forEach((button) => {
+          button.classList.toggle("active", button === custom);
+          button.setAttribute("aria-pressed", String(button === custom));
+        });
       });
       grid.appendChild(custom);
     }
