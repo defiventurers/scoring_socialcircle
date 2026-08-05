@@ -273,7 +273,7 @@ function setupLocalDatabase() {
   if (stored) {
     try {
       parsed = JSON.parse(stored);
-      if (!parsed || typeof parsed !== "object" || Object.keys(parsed).length !== 80) {
+      if (!parsed || typeof parsed !== "object" || Object.keys(parsed).length === 0) {
         shouldSeed = true;
       }
     } catch (e) {
@@ -281,6 +281,11 @@ function setupLocalDatabase() {
     }
   } else {
     shouldSeed = true;
+  }
+
+  const storedTournament = localStorage.getItem("aceo_active_tournament");
+  if (storedTournament) {
+    try { activeTournament = JSON.parse(storedTournament); } catch (e) { activeTournament = null; }
   }
 
   if (shouldSeed) {
@@ -309,8 +314,8 @@ function setupLocalDatabase() {
       });
     }
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(initialMatches));
-  } else if (parsed) {
-    // Self-healing: Update names or times if fixtures.js was corrected
+  } else if (parsed && !activeTournament && Object.keys(parsed).length === 80) {
+    // Self-healing: Update names or times if fixtures.js was corrected for the bundled demo event.
     let updated = false;
     for (let courtNum = 1; courtNum <= 4; courtNum++) {
       const courtFixtures = window.FIXTURES[courtNum] || [];
@@ -619,7 +624,10 @@ function checkAutologin() {
     } else {
       loginSuccess(parseInt(savedCourt), savedUid);
     }
+    return;
   }
+
+  showOnlyScreen("home-screen");
 }
 
 function logoutSession() {
@@ -1726,8 +1734,8 @@ function openTournamentBuilder() {
 
 function initializeTournamentBuilder() {
   renderSportChoices();
+  setupPresetControls();
   selectSport(builderDraft.sport || "pickleball");
-  setupPresetButtons();
   populateBuilderFormats();
   applyOfficialRulePreset();
   showBuilderStep("details");
@@ -1742,8 +1750,11 @@ function showBuilderStep(step = "details") {
   document.getElementById("builder-step-count").textContent = `Step ${index + 1} of ${BUILDER_STEPS.length}`;
   document.getElementById("builder-step-name").textContent = BUILDER_STEP_NAMES[index] || "Tournament Builder";
   document.querySelector(".progress-track")?.setAttribute("aria-valuenow", String(index + 1));
+  const track = document.querySelector(".progress-track");
+  if (track) track.setAttribute("aria-valuemax", String(BUILDER_STEPS.length));
   const bar = document.getElementById("builder-progress-bar");
   if (bar) bar.style.width = `${((index + 1) / BUILDER_STEPS.length) * 100}%`;
+  if (step === "publish") renderBuilderPublishSummary();
 }
 function setupPresetButtons() {
   document.querySelectorAll(".preset-grid").forEach((grid) => {
@@ -1807,10 +1818,26 @@ function renderScoringConfiguration() {
   const advanced = document.getElementById("scoring-advanced-content");
   if (advanced) advanced.innerHTML = Object.keys(sport.defaults).map((key) => `<label class="setup-field"><span>${key.replace(/([A-Z])/g, " $1")}</span><input class="form-input" data-rule-key="${key}" value="${sport.defaults[key] ?? ""}" /></label>`).join("");
 }
+function collectRuleInputs() {
+  const sport = SPORT_RULE_PRESETS[builderDraft.sport] || SPORT_RULE_PRESETS.pickleball;
+  const rules = { mode: builderDraft.scoringMode || "official", sport: builderDraft.sport, ...sport.defaults };
+  document.querySelectorAll("#scoring-common-settings [data-rule-key], #scoring-advanced-content [data-rule-key]").forEach((input) => {
+    const key = input.dataset.ruleKey;
+    if (!key) return;
+    const raw = input.value;
+    if (raw === "true" || raw === "false") rules[key] = raw === "true";
+    else if (raw === "") rules[key] = null;
+    else if (!Number.isNaN(Number(raw)) && raw.trim() !== "") rules[key] = Number(raw);
+    else rules[key] = raw;
+  });
+  return rules;
+}
 function collectBuilderDraft() {
   builderDraft.name = document.getElementById("builder-name")?.value?.trim() || "Untitled Tournament";
   builderDraft.playerCount = Math.max(4, Number(document.getElementById("builder-player-count")?.value || 16));
   builderDraft.numberOfCourts = Math.max(1, Number(document.getElementById("builder-court-count")?.value || 1));
+  builderDraft.roundCount = Math.max(1, Number(document.getElementById("builder-round-count")?.value || Math.ceil(builderDraft.playerCount / 4)));
+  builderDraft.roundGapMinutes = Math.max(0, Number(document.getElementById("builder-round-gap")?.value || 0));
   builderDraft.roundDurationMinutes = Number(document.getElementById("builder-match-duration")?.value || 8);
   builderDraft.pointsToWin = Number(document.getElementById("builder-points-to-win")?.value || builderDraft.ruleConfiguration?.targetScore || 11);
   builderDraft.winBy = Number(document.getElementById("builder-win-by")?.value || builderDraft.ruleConfiguration?.winBy || 2);
@@ -1818,6 +1845,7 @@ function collectBuilderDraft() {
   builderDraft.startTime = document.getElementById("builder-start-time")?.value || "11:00";
   builderDraft.location = document.getElementById("builder-location")?.value?.trim() || "";
   builderDraft.format = document.getElementById("builder-format")?.value || "round-robin";
+  builderDraft.ruleConfiguration = collectRuleInputs();
   return builderDraft;
 }
 function preparePlayerNamesStep() {
@@ -1834,32 +1862,60 @@ function saveTournamentPlayers() { builderDraft.players = Array.from(document.qu
 function populateBuilderFormats() { const select = document.getElementById("builder-format"); if (select && !select.options.length) (window.TOURNAMENT_FORMATS || ["round-robin", "single-elimination", "americano", "mexicano", "king-of-the-court", "ladder-league"]).forEach((f) => select.add(new Option(f.replace(/-/g, " "), f))); }
 function showFormatInformation() { const info = document.getElementById("format-info-content"); if (info) info.textContent = `Selected format: ${document.getElementById("builder-format")?.value || "round-robin"}`; }
 function confirmTournamentFormat() { collectBuilderDraft(); showBuilderStep("courts"); }
+function formatDraftTime(roundIndex) {
+  const [hours = 11, minutes = 0] = String(builderDraft.startTime || "11:00").split(":").map(Number);
+  const date = new Date(2000, 0, 1, hours, minutes + roundIndex * (builderDraft.roundDurationMinutes + builderDraft.roundGapMinutes));
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+function rotatePlayers(players, round) {
+  if (!players.length) return [];
+  const offset = round % players.length;
+  return [...players.slice(offset), ...players.slice(0, offset)];
+}
 function buildDraftMatches() {
   collectBuilderDraft();
   const players = builderDraft.players?.length ? builderDraft.players : Array.from({ length: builderDraft.playerCount }, (_, i) => `Player ${i + 1}`);
   const matches = {};
   const courts = builderDraft.numberOfCourts;
-  for (let i = 0; i < players.length; i += 4) {
-    const group = [players[i], players[i + 1], players[i + 2], players[i + 3]].filter(Boolean);
-    if (group.length < 2) continue;
-    const id = `draft-${Object.keys(matches).length + 1}`;
-    matches[id] = { id, court: (Object.keys(matches).length % courts) + 1, round: Math.floor(Object.keys(matches).length / courts) + 1, time: builderDraft.startTime, teamA: group.slice(0, Math.ceil(group.length / 2)), teamB: group.slice(Math.ceil(group.length / 2)), teamAScore: 0, teamBScore: 0, status: "scheduled", scoreHistory: [] };
+  const singles = String(builderDraft.tournamentType || "").includes("singles");
+  let matchNumber = 1;
+  for (let round = 1; round <= builderDraft.roundCount; round += 1) {
+    const ordered = rotatePlayers(players, round - 1);
+    const playersPerMatch = singles ? 2 : 4;
+    const maxMatchesThisRound = Math.min(courts, Math.floor(ordered.length / playersPerMatch));
+    for (let courtIndex = 0; courtIndex < maxMatchesThisRound; courtIndex += 1) {
+      const group = ordered.slice(courtIndex * playersPerMatch, courtIndex * playersPerMatch + playersPerMatch);
+      if (group.length < playersPerMatch) continue;
+      const id = `draft-${matchNumber}`;
+      const midpoint = singles ? 1 : 2;
+      matches[id] = { id, court: courtIndex + 1, round, time: formatDraftTime(round - 1), teamA: group.slice(0, midpoint), teamB: group.slice(midpoint), teamAScore: 0, teamBScore: 0, status: "scheduled", assignmentStatus: round === 1 ? "next-ready" : "waiting", scoreHistory: [], startedAt: null, finalizedAt: null, finalizedBy: null, finishReason: null };
+      matchNumber += 1;
+    }
   }
   return matches;
 }
 function renderBuilderReview() {
   const matches = buildDraftMatches();
   const summary = document.getElementById("builder-preview-summary");
-  if (summary) summary.textContent = `${builderDraft.name} · ${SPORT_RULE_PRESETS[builderDraft.sport]?.name || builderDraft.sport} · ${EVENT_LABELS[builderDraft.tournamentType] || builderDraft.tournamentType} · ${builderDraft.playerCount} players · ${builderDraft.numberOfCourts} courts`;
+  if (summary) summary.textContent = `${builderDraft.name} · ${SPORT_RULE_PRESETS[builderDraft.sport]?.name || builderDraft.sport} · ${EVENT_LABELS[builderDraft.tournamentType] || builderDraft.tournamentType} · ${builderDraft.playerCount} players · ${builderDraft.numberOfCourts} courts · ${Object.keys(matches).length} matches`;
   const list = document.getElementById("builder-preview-list");
-  if (list) list.innerHTML = Object.values(matches).map((m) => `<div class="fixture-preview-card"><strong>Round ${m.round} · Court ${m.court}</strong><span>${escapeMarkup(m.teamA.join(" / "))} vs ${escapeMarkup(m.teamB.join(" / "))}</span></div>`).join("") || `<div class="empty-state">Add players to preview fixtures.</div>`;
+  if (list) list.innerHTML = Object.values(matches).map((m) => `<div class="fixture-preview-card"><strong>Round ${m.round} · Court ${m.court} · ${escapeMarkup(m.time)}</strong><span>${escapeMarkup(m.teamA.join(" / "))} vs ${escapeMarkup(m.teamB.join(" / "))}</span></div>`).join("") || `<div class="empty-state">Add enough players to preview fixtures.</div>`;
+  return matches;
+}
+function renderBuilderPublishSummary() {
+  const matches = renderBuilderReview();
+  const summary = document.getElementById("builder-publish-summary");
+  if (summary) summary.innerHTML = `<strong>${escapeMarkup(builderDraft.name || "Untitled Tournament")}</strong><p>${Object.keys(matches).length} matches will be published for ${escapeMarkup(SPORT_RULE_PRESETS[builderDraft.sport]?.name || builderDraft.sport)}.</p>`;
 }
 function generateBuilderFixtures() { renderBuilderReview(); showBuilderStep("preview"); }
 function publishBuilderTournament() {
   const matches = buildDraftMatches();
-  activeTournament = { id: `local-${Date.now()}`, name: builderDraft.name, sport: builderDraft.sport, event: builderDraft.tournamentType, format: builderDraft.format, numberOfCourts: builderDraft.numberOfCourts, pointsToWin: builderDraft.pointsToWin, status: "published", settings: { roundDurationMinutes: builderDraft.roundDurationMinutes, winBy: builderDraft.winBy, ruleConfiguration: builderDraft.ruleConfiguration } };
+  activeTournament = { id: `local-${Date.now()}`, name: builderDraft.name, sport: builderDraft.sport, event: builderDraft.tournamentType, format: builderDraft.format, numberOfCourts: builderDraft.numberOfCourts, pointsToWin: builderDraft.pointsToWin, status: "published", settings: { numberOfRounds: builderDraft.roundCount, roundDurationMinutes: builderDraft.roundDurationMinutes, intervalMinutes: builderDraft.roundGapMinutes, winBy: builderDraft.winBy, ruleConfiguration: builderDraft.ruleConfiguration } };
   matchesCache = matches;
-  if (!firebaseEnabled) localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(matches));
+  if (!firebaseEnabled) {
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(matches));
+    localStorage.setItem("aceo_active_tournament", JSON.stringify(activeTournament));
+  }
   onMatchesDataChanged(matches);
   const summary = document.getElementById("builder-publish-summary");
   if (summary) summary.innerHTML = `<strong>${escapeMarkup(activeTournament.name)} published.</strong><p>${Object.keys(matches).length} matches are ready for referee devices.</p>`;
