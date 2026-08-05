@@ -413,6 +413,13 @@
                 <div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('sport')">Previous</button><button id="builder-type-continue" class="btn btn-primary" onclick="continueTournamentType()" disabled>Continue</button></div>
               </section>
 
+              <section id="builder-count-step" class="builder-step">
+                <h4>Player count</h4>
+                <p class="builder-help">Choose a common roster size or select Custom to enter another even number.</p>
+                <label class="setup-field field-wide"><span>Players</span><div class="preset-grid" data-preset-for="builder-player-count" data-values="8,12,16,20,24,32" data-custom="true"></div><input id="builder-player-count" class="form-input preset-custom-input hidden" type="number" inputmode="numeric" min="4" max="40" step="2" value="16" /></label>
+                <div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('event')">Previous</button><button class="btn btn-primary" onclick="preparePlayerNamesStep()">Continue</button></div>
+              </section>
+
               <section id="builder-format-step" class="builder-step">
                 <label class="setup-field"><span>Format</span><select id="builder-format" class="form-input" onchange="showFormatInformation()"></select></label>
                 <details id="format-info-card" class="format-info-card" open>
@@ -427,11 +434,9 @@
                 <p class="builder-help">Start with the basics. Player counts, courts and scoring are confirmed in focused steps next.</p>
                 <div class="settings-grid">
                   <label class="setup-field field-wide"><span>Tournament name</span><input id="builder-name" class="form-input" placeholder="Summer Social" autocomplete="off" /><small id="builder-name-error" class="field-error hidden"></small></label>
-                  <label class="setup-field field-wide"><span>Players</span><div class="preset-grid" data-preset-for="builder-player-count" data-values="8,12,16,20,24,32" data-custom="true"></div><input id="builder-player-count" class="form-input preset-custom-input hidden" type="number" inputmode="numeric" min="4" max="40" step="2" value="16" /></label>
                   <label class="setup-field"><span>Match duration</span><div class="input-with-unit"><div class="preset-grid" data-preset-for="builder-match-duration" data-values="8,10,12,15,20" data-custom="true"></div><input id="builder-match-duration" class="form-input preset-custom-input hidden" type="number" inputmode="numeric" min="1" max="180" value="8" /><span>min</span></div></label>
                   <label class="setup-field"><span>Points to win</span><div class="preset-grid" data-preset-for="builder-points-to-win" data-values="11,15,21" data-custom="true"></div><input id="builder-points-to-win" class="form-input preset-custom-input hidden" type="number" inputmode="numeric" min="1" max="99" value="15" /></label>
                   <label class="setup-field"><span>Win by</span><div class="preset-grid" data-preset-for="builder-win-by" data-values="1,2" data-custom="true"></div><input id="builder-win-by" class="form-input preset-custom-input hidden" type="number" inputmode="numeric" min="1" max="10" value="1" /></label>
-                  <label class="setup-field"><span>Courts</span><div class="preset-grid" data-preset-for="builder-court-count" data-values="1,2,3,4" data-custom="true"></div><input id="builder-court-count" class="form-input preset-custom-input hidden" type="number" inputmode="numeric" min="1" max="4" value="4" /></label>
                   <label id="builder-round-count-field" class="setup-field"><span>Rounds</span><div class="preset-grid" data-preset-for="builder-round-count" data-values="4,6,8,10,12" data-custom="true"></div><input id="builder-round-count" class="form-input preset-custom-input hidden" type="number" inputmode="numeric" min="1" max="100" value="6" /></label>
                   <label class="setup-field"><span>Between rounds</span><div class="input-with-unit"><div class="preset-grid" data-preset-for="builder-round-gap" data-values="0,2,5,10" data-custom="true"></div><input id="builder-round-gap" class="form-input preset-custom-input hidden" type="number" inputmode="numeric" min="0" max="120" value="2" /><span>min</span></div></label>
                   <label class="setup-field"><span>Start time</span><input id="builder-start-time" class="form-input" type="time" value="11:00" /></label>
@@ -447,6 +452,13 @@
                 <div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="goBackInWorkflow()">Previous</button><button id="builder-save-settings" class="btn btn-primary" onclick="showBuilderStep('sport')">Continue</button></div>
               </section>
 
+              <section id="builder-courts-step" class="builder-step">
+                <h4>Courts</h4>
+                <p class="builder-help">Select how many courts are available for automatic match assignment.</p>
+                <label class="setup-field field-wide"><span>Courts</span><div class="preset-grid" data-preset-for="builder-court-count" data-values="1,2,3,4" data-custom="true"></div><input id="builder-court-count" class="form-input preset-custom-input hidden" type="number" inputmode="numeric" min="1" max="12" value="4" /></label>
+                <div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('format')">Previous</button><button class="btn btn-primary" onclick="showBuilderStep('scoring')">Continue</button></div>
+              </section>
+
               <section id="builder-scoring-step" class="builder-step">
                 <h4>Scoring rules</h4>
                 <p class="builder-help">Official Rules are selected by default. Customize Rules reveals the full configuration already supported by this tournament.</p>
@@ -460,9 +472,9 @@
                 <div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('courts')">Previous</button><button class="btn btn-primary" onclick="saveTournamentConfiguration()">Continue</button></div>
               </section>
 
-              <section id="builder-players-step" class="builder-step"><h4>Player names</h4><p class="builder-help">Confirm the roster. Permanent labels never change; display names are optional.</p><div id="builder-player-grid" class="player-assignment-grid"></div><div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('event')">Previous</button><button id="builder-save-players" class="btn btn-primary" onclick="saveTournamentPlayers()">Continue</button></div></section>
+              <section id="builder-players-step" class="builder-step"><h4>Player names</h4><p class="builder-help">Confirm the roster. Permanent labels never change; display names are optional.</p><div id="builder-player-grid" class="player-assignment-grid"></div><div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('count')">Previous</button><button id="builder-save-players" class="btn btn-primary" onclick="saveTournamentPlayers()">Continue</button></div></section>
               <section id="builder-fixtures-step" class="builder-step"><h4>Generate fixtures</h4><div id="builder-assignment-summary" class="setup-note"></div><p class="builder-help">Create the draft schedule, then review every matchup before publishing.</p><div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('scoring')">Previous</button><button id="builder-generate" class="btn btn-primary" onclick="generateBuilderFixtures()">Generate Fixtures</button></div></section>
-              <section id="builder-preview-step" class="builder-step"><h4>Preview fixtures</h4><div id="builder-preview-summary" class="setup-note"></div><div id="builder-preview-list" class="fixture-preview"></div><div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('fixtures')">Previous</button><button class="btn btn-primary" onclick="showBuilderStep('publish')">Continue</button></div></section>
+              <section id="builder-preview-step" class="builder-step"><h4>Preview fixtures</h4><div id="builder-preview-summary" class="setup-note"></div><div id="builder-preview-list" class="fixture-preview"></div><div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('scoring')">Previous</button><button class="btn btn-primary" onclick="showBuilderStep('publish')">Continue</button></div></section>
               <section id="builder-publish-step" class="builder-step"><h4>Ready to publish</h4><div id="builder-publish-summary" class="publish-summary"></div><p class="builder-help">Publishing makes this tournament available to referee devices and locks fixture generation.</p><div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('preview')">Previous</button><button id="builder-publish" class="btn btn-primary" onclick="publishBuilderTournament()">Publish Tournament</button></div></section>
               <div id="builder-message" class="action-message hidden" role="status" aria-live="polite"></div>
             </div>
