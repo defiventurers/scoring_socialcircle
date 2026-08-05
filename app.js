@@ -159,10 +159,6 @@ function closeAdminMatchManager() {
   document.getElementById("admin-match-manager")?.classList.add("hidden");
 }
 
-function continueTournamentType() {
-  showBuilderStep("format");
-  showFormatInformation();
-}
 
 // Initialize Icons
 function initLucide() {
@@ -1725,7 +1721,9 @@ function openTournamentBuilder() {
 
 function initializeTournamentBuilder() {
   renderSportChoices();
+  selectSport(builderDraft.sport || "pickleball");
   setupPresetButtons();
+  populateBuilderFormats();
   applyOfficialRulePreset();
   showBuilderStep("details");
 }
@@ -1733,7 +1731,7 @@ function initializeTournamentBuilder() {
 const BUILDER_STEPS = ["details", "sport", "event", "count", "players", "format", "courts", "scoring", "preview", "publish"];
 const BUILDER_STEP_NAMES = ["Tournament Details", "Choose Sport", "Choose Event", "Player Count", "Player Names", "Tournament Format", "Courts", "Scoring Rules", "Review", "Publish"];
 function showBuilderStep(step = "details") {
-  const sectionStep = { event: "type", count: "details", courts: "details" }[step] || step;
+  const sectionStep = { event: "type" }[step] || step;
   document.querySelectorAll(".builder-step").forEach((section) => section.classList.toggle("active", section.id === `builder-${sectionStep}-step`));
   const index = Math.max(0, BUILDER_STEPS.indexOf(step));
   document.getElementById("builder-step-count").textContent = `Step ${index + 1} of ${BUILDER_STEPS.length}`;
@@ -1766,6 +1764,7 @@ function renderSportChoices() {
   target.innerHTML = Object.entries(SPORT_RULE_PRESETS).map(([id, sport]) => `<button class="choice-card" data-sport="${id}" onclick="selectSport('${id}')"><strong>${sport.name}</strong><small>Official preset + supported events</small></button>`).join("");
 }
 function selectSport(sport) {
+  if (!SPORT_RULE_PRESETS[sport]) return;
   builderDraft.sport = sport;
   document.querySelectorAll("[data-sport]").forEach((button) => button.classList.toggle("selected", button.dataset.sport === sport));
   document.getElementById("builder-sport-continue").disabled = false;
@@ -1774,14 +1773,17 @@ function selectSport(sport) {
 function renderEventChoices() {
   const stack = document.querySelector("#builder-type-step .choice-stack"); if (!stack) return;
   const sport = SPORT_RULE_PRESETS[builderDraft.sport] || SPORT_RULE_PRESETS.pickleball;
-  stack.innerHTML = sport.events.map((event) => `<button class="choice-card" data-tournament-type="${event}" onclick="selectTournamentType('${event}')"><strong>${EVENT_LABELS[event] || event}</strong><small>${sport.name} event</small></button>`).join("");
+  if (!sport.events.includes(builderDraft.tournamentType)) builderDraft.tournamentType = sport.events[0];
+  stack.innerHTML = sport.events.map((event) => `<button class="choice-card ${builderDraft.tournamentType === event ? "selected" : ""}" data-tournament-type="${event}" onclick="selectTournamentType('${event}')"><strong>${EVENT_LABELS[event] || event}</strong><small>${sport.name} event</small></button>`).join("");
+  const continueButton = document.getElementById("builder-type-continue");
+  if (continueButton) continueButton.disabled = false;
 }
 function selectTournamentType(type = "mixed-doubles") {
   builderDraft.tournamentType = type;
   document.querySelectorAll("[data-tournament-type]").forEach((button) => button.classList.toggle("selected", button.dataset.tournamentType === type));
   document.getElementById("builder-type-continue").disabled = false;
 }
-function continueTournamentType() { showBuilderStep("players"); }
+function continueTournamentType() { showBuilderStep("count"); }
 function applyOfficialRulePreset() {
   const sport = SPORT_RULE_PRESETS[builderDraft.sport] || SPORT_RULE_PRESETS.pickleball;
   builderDraft.ruleConfiguration = { mode: builderDraft.scoringMode || "official", sport: builderDraft.sport, ...sport.defaults };
@@ -1800,13 +1802,64 @@ function renderScoringConfiguration() {
   const advanced = document.getElementById("scoring-advanced-content");
   if (advanced) advanced.innerHTML = Object.keys(sport.defaults).map((key) => `<label class="setup-field"><span>${key.replace(/([A-Z])/g, " $1")}</span><input class="form-input" data-rule-key="${key}" value="${sport.defaults[key] ?? ""}" /></label>`).join("");
 }
-function saveTournamentConfiguration() { showBuilderStep("preview"); }
-function saveTournamentPlayers() { populateBuilderFormats(); showBuilderStep("format"); }
-function populateBuilderFormats() { const select = document.getElementById("builder-format"); if (select && !select.options.length && window.TOURNAMENT_FORMATS) window.TOURNAMENT_FORMATS.forEach((f) => select.add(new Option(f.replace(/-/g, " "), f))); }
-function showFormatInformation() {}
-function confirmTournamentFormat() { showBuilderStep("courts"); }
-function generateBuilderFixtures() { showBuilderStep("preview"); }
-function publishBuilderTournament() { showBuilderStep("publish"); }
+function collectBuilderDraft() {
+  builderDraft.name = document.getElementById("builder-name")?.value?.trim() || "Untitled Tournament";
+  builderDraft.playerCount = Math.max(4, Number(document.getElementById("builder-player-count")?.value || 16));
+  builderDraft.numberOfCourts = Math.max(1, Number(document.getElementById("builder-court-count")?.value || 1));
+  builderDraft.roundDurationMinutes = Number(document.getElementById("builder-match-duration")?.value || 8);
+  builderDraft.pointsToWin = Number(document.getElementById("builder-points-to-win")?.value || builderDraft.ruleConfiguration?.targetScore || 11);
+  builderDraft.winBy = Number(document.getElementById("builder-win-by")?.value || builderDraft.ruleConfiguration?.winBy || 2);
+  builderDraft.date = document.getElementById("builder-date")?.value || "";
+  builderDraft.startTime = document.getElementById("builder-start-time")?.value || "11:00";
+  builderDraft.location = document.getElementById("builder-location")?.value?.trim() || "";
+  builderDraft.format = document.getElementById("builder-format")?.value || "round-robin";
+  return builderDraft;
+}
+function preparePlayerNamesStep() {
+  collectBuilderDraft();
+  const grid = document.getElementById("builder-player-grid");
+  if (grid) {
+    const existing = Array.from(grid.querySelectorAll("input")).map((input) => input.value);
+    grid.innerHTML = Array.from({ length: builderDraft.playerCount }, (_, index) => `<label class="setup-field"><span>Player ${index + 1}</span><input class="form-input builder-player-name" value="${escapeMarkup(existing[index] || `Player ${index + 1}`)}" /></label>`).join("");
+  }
+  showBuilderStep("players");
+}
+function saveTournamentConfiguration() { collectBuilderDraft(); renderBuilderReview(); showBuilderStep("preview"); }
+function saveTournamentPlayers() { builderDraft.players = Array.from(document.querySelectorAll(".builder-player-name")).map((input, index) => input.value.trim() || `Player ${index + 1}`); populateBuilderFormats(); showBuilderStep("format"); }
+function populateBuilderFormats() { const select = document.getElementById("builder-format"); if (select && !select.options.length) (window.TOURNAMENT_FORMATS || ["round-robin", "single-elimination", "americano", "mexicano", "king-of-the-court", "ladder-league"]).forEach((f) => select.add(new Option(f.replace(/-/g, " "), f))); }
+function showFormatInformation() { const info = document.getElementById("format-info-content"); if (info) info.textContent = `Selected format: ${document.getElementById("builder-format")?.value || "round-robin"}`; }
+function confirmTournamentFormat() { collectBuilderDraft(); showBuilderStep("courts"); }
+function buildDraftMatches() {
+  collectBuilderDraft();
+  const players = builderDraft.players?.length ? builderDraft.players : Array.from({ length: builderDraft.playerCount }, (_, i) => `Player ${i + 1}`);
+  const matches = {};
+  const courts = builderDraft.numberOfCourts;
+  for (let i = 0; i < players.length; i += 4) {
+    const group = [players[i], players[i + 1], players[i + 2], players[i + 3]].filter(Boolean);
+    if (group.length < 2) continue;
+    const id = `draft-${Object.keys(matches).length + 1}`;
+    matches[id] = { id, court: (Object.keys(matches).length % courts) + 1, round: Math.floor(Object.keys(matches).length / courts) + 1, time: builderDraft.startTime, teamA: group.slice(0, Math.ceil(group.length / 2)), teamB: group.slice(Math.ceil(group.length / 2)), teamAScore: 0, teamBScore: 0, status: "scheduled", scoreHistory: [] };
+  }
+  return matches;
+}
+function renderBuilderReview() {
+  const matches = buildDraftMatches();
+  const summary = document.getElementById("builder-preview-summary");
+  if (summary) summary.textContent = `${builderDraft.name} · ${SPORT_RULE_PRESETS[builderDraft.sport]?.name || builderDraft.sport} · ${EVENT_LABELS[builderDraft.tournamentType] || builderDraft.tournamentType} · ${builderDraft.playerCount} players · ${builderDraft.numberOfCourts} courts`;
+  const list = document.getElementById("builder-preview-list");
+  if (list) list.innerHTML = Object.values(matches).map((m) => `<div class="fixture-preview-card"><strong>Round ${m.round} · Court ${m.court}</strong><span>${escapeMarkup(m.teamA.join(" / "))} vs ${escapeMarkup(m.teamB.join(" / "))}</span></div>`).join("") || `<div class="empty-state">Add players to preview fixtures.</div>`;
+}
+function generateBuilderFixtures() { renderBuilderReview(); showBuilderStep("preview"); }
+function publishBuilderTournament() {
+  const matches = buildDraftMatches();
+  activeTournament = { id: `local-${Date.now()}`, name: builderDraft.name, sport: builderDraft.sport, event: builderDraft.tournamentType, format: builderDraft.format, numberOfCourts: builderDraft.numberOfCourts, pointsToWin: builderDraft.pointsToWin, status: "published", settings: { roundDurationMinutes: builderDraft.roundDurationMinutes, winBy: builderDraft.winBy, ruleConfiguration: builderDraft.ruleConfiguration } };
+  matchesCache = matches;
+  if (!firebaseEnabled) localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(matches));
+  onMatchesDataChanged(matches);
+  const summary = document.getElementById("builder-publish-summary");
+  if (summary) summary.innerHTML = `<strong>${escapeMarkup(activeTournament.name)} published.</strong><p>${Object.keys(matches).length} matches are ready for referee devices.</p>`;
+  showBuilderStep("publish");
+}
 function openPlayersPage() {}
 function savePlayerDirectory() {}
 function editTournamentDraft() {}
