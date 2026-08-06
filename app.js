@@ -1738,12 +1738,14 @@ function initializeTournamentBuilder() {
   selectSport(builderDraft.sport || "pickleball");
   populateBuilderFormats();
   applyOfficialRulePreset();
-  showBuilderStep("details");
+  showBuilderStep("sport");
 }
 
-const BUILDER_STEPS = ["details", "sport", "event", "count", "players", "format", "courts", "scoring", "preview", "publish"];
-const BUILDER_STEP_NAMES = ["Tournament Details", "Choose Sport", "Choose Event", "Player Count", "Player Names", "Tournament Format", "Courts", "Scoring Rules", "Review", "Publish"];
-function showBuilderStep(step = "details") {
+const BUILDER_STEPS = ["sport", "event", "format", "count", "players", "details", "match-scoring", "duration", "schedule", "break", "preview", "publish"];
+const BUILDER_STEP_NAMES = ["Choose Sport", "Choose Event", "Game Format", "Player Count", "Player Names", "Tournament Name", "Match Format & Scoring", "Match Duration", "Tournament Schedule", "Break Between Rounds", "Review", "Publish"];
+window.BUILDER_STEPS = BUILDER_STEPS;
+window.BUILDER_STEP_NAMES = BUILDER_STEP_NAMES;
+function showBuilderStep(step = "sport") {
   const sectionStep = { event: "type" }[step] || step;
   document.querySelectorAll(".builder-step").forEach((section) => section.classList.toggle("active", section.id === `builder-${sectionStep}-step`));
   const index = Math.max(0, BUILDER_STEPS.indexOf(step));
@@ -1799,7 +1801,7 @@ function selectTournamentType(type = "mixed-doubles") {
   document.querySelectorAll("[data-tournament-type]").forEach((button) => button.classList.toggle("selected", button.dataset.tournamentType === type));
   document.getElementById("builder-type-continue").disabled = false;
 }
-function continueTournamentType() { showBuilderStep("count"); }
+function continueTournamentType() { showBuilderStep("format"); }
 function applyOfficialRulePreset() {
   const sport = SPORT_RULE_PRESETS[builderDraft.sport] || SPORT_RULE_PRESETS.pickleball;
   builderDraft.ruleConfiguration = { mode: builderDraft.scoringMode || "official", sport: builderDraft.sport, ...sport.defaults };
@@ -1808,8 +1810,23 @@ function applyOfficialRulePreset() {
   renderScoringConfiguration();
 }
 function updateScoringMode() { builderDraft.scoringMode = document.querySelector('input[name="builder-scoring-mode"]:checked')?.value || "official"; renderScoringConfiguration(); }
+function updateBuilderScoringFormat() {
+  builderDraft.scoringFormat = document.querySelector('input[name="builder-scoring-format"]:checked')?.value || "points";
+  renderScoringConfiguration();
+}
 function renderScoringConfiguration() {
   const sport = SPORT_RULE_PRESETS[builderDraft.sport] || SPORT_RULE_PRESETS.pickleball;
+  const scoringOptions = document.getElementById("builder-scoring-format-options");
+  const pointFields = document.getElementById("builder-point-scoring-fields");
+  const usesTraditionalOption = ["tennis", "padel"].includes(builderDraft.sport);
+  if (scoringOptions) {
+    scoringOptions.classList.toggle("hidden", !usesTraditionalOption);
+    scoringOptions.innerHTML = usesTraditionalOption ? `
+      <label class="radio-card"><input type="radio" name="builder-scoring-format" value="traditional-tennis" ${builderDraft.scoringFormat !== "points" ? "checked" : ""} onchange="updateBuilderScoringFormat()" /><span><strong>Traditional Tennis</strong><small>0, 15, 30, 40, Deuce & Advantage</small></span></label>
+      <label class="radio-card"><input type="radio" name="builder-scoring-format" value="points" ${builderDraft.scoringFormat === "points" ? "checked" : ""} onchange="updateBuilderScoringFormat()" /><span><strong>Points</strong><small>Use a target score and winning margin.</small></span></label>` : "";
+  }
+  if (!usesTraditionalOption) builderDraft.scoringFormat = "points";
+  if (pointFields) pointFields.classList.toggle("hidden", usesTraditionalOption && builderDraft.scoringFormat !== "points");
   const summary = document.getElementById("official-rules-summary");
   if (summary) summary.innerHTML = `<strong>${sport.name} official preset</strong><p>${Object.entries(sport.defaults).map(([k,v]) => `${k}: ${v ?? "none"}`).join(" · ")}</p>`;
   const common = document.getElementById("scoring-common-settings");
@@ -1821,6 +1838,7 @@ function renderScoringConfiguration() {
 function collectRuleInputs() {
   const sport = SPORT_RULE_PRESETS[builderDraft.sport] || SPORT_RULE_PRESETS.pickleball;
   const rules = { mode: builderDraft.scoringMode || "official", sport: builderDraft.sport, ...sport.defaults };
+  if (["tennis", "padel"].includes(builderDraft.sport) && builderDraft.scoringFormat !== "points") rules.scoringSystem = "traditional-tennis";
   document.querySelectorAll("#scoring-common-settings [data-rule-key], #scoring-advanced-content [data-rule-key]").forEach((input) => {
     const key = input.dataset.ruleKey;
     if (!key) return;
@@ -1839,8 +1857,9 @@ function collectBuilderDraft() {
   builderDraft.roundCount = Math.max(1, Number(document.getElementById("builder-round-count")?.value || Math.ceil(builderDraft.playerCount / 4)));
   builderDraft.roundGapMinutes = Math.max(0, Number(document.getElementById("builder-round-gap")?.value || 0));
   builderDraft.roundDurationMinutes = Number(document.getElementById("builder-match-duration")?.value || 8);
-  builderDraft.pointsToWin = Number(document.getElementById("builder-points-to-win")?.value || builderDraft.ruleConfiguration?.targetScore || 11);
-  builderDraft.winBy = Number(document.getElementById("builder-win-by")?.value || builderDraft.ruleConfiguration?.winBy || 2);
+  const usesTraditionalScoring = ["tennis", "padel"].includes(builderDraft.sport) && builderDraft.scoringFormat !== "points";
+  builderDraft.pointsToWin = usesTraditionalScoring ? 0 : Number(document.getElementById("builder-points-to-win")?.value || builderDraft.ruleConfiguration?.targetScore || 11);
+  builderDraft.winBy = usesTraditionalScoring ? 0 : Number(document.getElementById("builder-win-by")?.value || builderDraft.ruleConfiguration?.winBy || 2);
   builderDraft.date = document.getElementById("builder-date")?.value || "";
   builderDraft.startTime = document.getElementById("builder-start-time")?.value || "11:00";
   builderDraft.location = document.getElementById("builder-location")?.value?.trim() || "";
@@ -1850,6 +1869,11 @@ function collectBuilderDraft() {
 }
 function preparePlayerNamesStep() {
   collectBuilderDraft();
+  if (!Number.isInteger(builderDraft.playerCount) || builderDraft.playerCount < 4 || builderDraft.playerCount % 2 !== 0) {
+    const message = document.getElementById("builder-message");
+    if (message) { message.textContent = "Player count must be a valid even number."; message.classList.remove("hidden"); }
+    return;
+  }
   const grid = document.getElementById("builder-player-grid");
   if (grid) {
     const existing = Array.from(grid.querySelectorAll("input")).map((input) => input.value);
@@ -1858,10 +1882,10 @@ function preparePlayerNamesStep() {
   showBuilderStep("players");
 }
 function saveTournamentConfiguration() { collectBuilderDraft(); renderBuilderReview(); showBuilderStep("preview"); }
-function saveTournamentPlayers() { builderDraft.players = Array.from(document.querySelectorAll(".builder-player-name")).map((input, index) => input.value.trim() || `Player ${index + 1}`); populateBuilderFormats(); showBuilderStep("format"); }
+function saveTournamentPlayers() { builderDraft.players = Array.from(document.querySelectorAll(".builder-player-name")).map((input, index) => input.value.trim() || `Player ${index + 1}`); populateBuilderFormats(); showBuilderStep("details"); }
 function populateBuilderFormats() { const select = document.getElementById("builder-format"); if (select && !select.options.length) (window.TOURNAMENT_FORMATS || ["round-robin", "single-elimination", "americano", "mexicano", "king-of-the-court", "ladder-league"]).forEach((f) => select.add(new Option(f.replace(/-/g, " "), f))); }
 function showFormatInformation() { const info = document.getElementById("format-info-content"); if (info) info.textContent = `Selected format: ${document.getElementById("builder-format")?.value || "round-robin"}`; }
-function confirmTournamentFormat() { collectBuilderDraft(); showBuilderStep("courts"); }
+function confirmTournamentFormat() { collectBuilderDraft(); showBuilderStep("count"); }
 function formatDraftTime(roundIndex) {
   const [hours = 11, minutes = 0] = String(builderDraft.startTime || "11:00").split(":").map(Number);
   const date = new Date(2000, 0, 1, hours, minutes + roundIndex * (builderDraft.roundDurationMinutes + builderDraft.roundGapMinutes));
