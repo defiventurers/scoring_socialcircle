@@ -606,28 +606,23 @@ function loginSuccess(court, userId) {
 }
 
 function continueFromWelcome() {
-  localStorage.setItem("aceo_welcome_seen", "true");
-  showOnlyScreen("home-screen");
+  const savedCourt = localStorage.getItem("saved_court");
+  const savedUid = localStorage.getItem("saved_uid");
+
+  if (savedCourt && savedUid) {
+    loginSuccess(savedCourt === "admin" ? "admin" : parseInt(savedCourt, 10), savedUid);
+    return;
+  }
+
+  workflowIntent = "create";
+  currentCourt = "admin";
+  showOnlyScreen("dashboard-screen");
+  switchTab("builder");
+  initializeTournamentBuilder();
 }
 
 function checkAutologin() {
-  if (localStorage.getItem("aceo_welcome_seen") !== "true") {
-    showOnlyScreen("welcome-screen");
-    return;
-  }
-  const savedCourt = localStorage.getItem("saved_court");
-  const savedUid = localStorage.getItem("saved_uid");
-  
-  if (savedCourt && savedUid) {
-    if (savedCourt === "admin") {
-      loginSuccess("admin", savedUid);
-    } else {
-      loginSuccess(parseInt(savedCourt), savedUid);
-    }
-    return;
-  }
-
-  showOnlyScreen("home-screen");
+  showOnlyScreen("welcome-screen");
 }
 
 function logoutSession() {

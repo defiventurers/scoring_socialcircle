@@ -1672,13 +1672,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, [role="button"]
 }
 
 /* Aceo welcome and incremental tournament-builder enhancements */
-.welcome-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: linear-gradient(160deg, var(--primary-green), #123f34 55%, #f8f1df); }
-.welcome-card { width: min(100%, 420px); padding: 34px 24px; border-radius: 28px; background: rgba(255,255,255,0.94); box-shadow: 0 22px 60px rgba(0,0,0,0.18); text-align: center; }
-.welcome-brand { font-size: clamp(54px, 16vw, 82px); line-height: 0.95; font-weight: 900; color: var(--primary-green); letter-spacing: -0.08em; }
-.welcome-byline { margin-top: 12px; font-weight: 800; color: var(--text-dark); }
-.welcome-link { display: inline-block; margin-top: 6px; color: var(--primary-green); font-weight: 700; text-decoration: none; }
-.welcome-tagline { margin: 26px auto; max-width: 300px; color: var(--text-muted); font-size: 17px; line-height: 1.45; }
-.welcome-continue { width: 100%; min-height: 56px; font-size: 17px; }
+.welcome-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at top, rgba(197,160,89,0.22), transparent 34%), linear-gradient(160deg, var(--primary-green), #123f34 58%, var(--secondary-navy)); }
+.welcome-card { width: min(100%, 420px); padding: 42px 24px; border-radius: 28px; background: rgba(255,255,255,0.94); box-shadow: 0 22px 60px rgba(0,0,0,0.18); text-align: center; }
+.welcome-brand { font-size: clamp(64px, 18vw, 96px); line-height: 0.95; font-weight: 900; color: var(--primary-green); letter-spacing: -0.08em; }
+.welcome-byline { margin-top: 12px; font-size: 14px; font-weight: 700; color: var(--text-muted); }
+.welcome-continue { width: 100%; min-height: 56px; margin-top: 40px; font-size: 17px; }
 .choice-card.selected, .preset-pill.active, .radio-card:has(input:checked) { border-color: var(--primary-green); background: rgba(14, 58, 47, 0.08); box-shadow: inset 0 0 0 1px var(--primary-green); }
 .preset-grid { display: flex; flex-wrap: wrap; gap: 10px; }
 .preset-pill { min-width: 58px; min-height: 48px; border: 1px solid var(--border-color); border-radius: 14px; background: white; color: var(--text-dark); font-weight: 800; font-size: 16px; }
