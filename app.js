@@ -19,6 +19,8 @@ let selectedTournamentId = null;
 let tournamentCatalog = [];
 let builderDraft = { sport: "pickleball", tournamentType: "mixed-doubles", scoringMode: "official", scoringFormat: "points" };
 
+const TRADITIONAL_SCORING_FORMAT = "traditional-tennis";
+
 const SPORT_RULE_PRESETS = {
   tennis: { name: "Tennis", events: ["mens-singles", "womens-singles", "mens-doubles", "womens-doubles", "mixed-doubles"], defaults: { scoringSystem: "traditional-tennis", matchFormat: "best-of-3-sets", sets: 3, gamesPerSet: 6, winBy: 2, tieBreak: true, tieBreakAt: "6-6", tieBreakPoints: 7, finalSetSuperTieBreak: false, noAd: false, rallyPoint: false, serviceRules: "standard", courtChanges: "standard" }, editable: ["sets", "gamesPerSet", "tieBreak", "tieBreakPoints", "finalSetSuperTieBreak", "noAd", "rallyPoint"] },
   padel: { name: "Padel", events: ["mens-doubles", "womens-doubles", "mixed-doubles"], defaults: { scoringSystem: "traditional-tennis", matchFormat: "best-of-3-sets", sets: 3, gamesPerSet: 6, winBy: 2, tieBreak: true, tieBreakAt: "6-6", tieBreakPoints: 7, goldenPoint: false, rallyPoint: false, serviceRules: "standard-padel" }, editable: ["sets", "gamesPerSet", "tieBreak", "tieBreakPoints", "goldenPoint", "rallyPoint"] },
@@ -27,15 +29,21 @@ const SPORT_RULE_PRESETS = {
   "table-tennis": { name: "Table Tennis", events: ["mens-singles", "womens-singles", "mens-doubles", "womens-doubles", "mixed-doubles"], defaults: { scoringSystem: "rally", matchFormat: "best-of-5-games", bestOf: 5, targetScore: 11, winBy: 2, serviceRotationFrequency: 2, serviceRules: "official-ittf" }, editable: ["bestOf", "targetScore", "winBy", "serviceRotationFrequency"] },
 };
 const EVENT_LABELS = { "mens-singles": "Men's Singles", "womens-singles": "Women's Singles", "mens-doubles": "Men's Doubles", "womens-doubles": "Women's Doubles", "mixed-doubles": "Mixed Doubles" };
-function getActiveScoringRules() {
+function getActiveScoringRules(match = currentMatch) {
   const settings = activeTournament?.settings || {};
-  const rules = settings.ruleConfiguration || {};
-  const nestedRules = rules.rules || {};
-  const sport = settings.sport || activeTournament?.sport || rules.sport || nestedRules.sport || "pickleball";
-  const scoringFormat = settings.scoringFormat || rules.scoringFormat || nestedRules.scoringFormat || (nestedRules.scoringSystem === "traditional-tennis" || rules.scoringSystem === "traditional-tennis" ? "traditional-tennis" : "points");
-  const pointsToWin = Math.max(1, Number(activeTournament?.pointsToWin || nestedRules.targetScore || rules.targetScore || 15));
-  const winBy = Math.max(1, Number(activeTournament?.winBy || settings.winBy || nestedRules.winBy || rules.winBy || 1));
-  return { sport, scoringFormat, isTraditional: ["tennis", "padel"].includes(sport) && scoringFormat === "traditional-tennis", pointsToWin, winBy, setsToWin: Math.ceil(Number(nestedRules.sets || rules.sets || settings.sets || 1) / 2), gamesPerSet: Number(nestedRules.gamesPerSet || rules.gamesPerSet || settings.gamesPerSet || 6), tieBreak: nestedRules.tieBreak ?? rules.tieBreak ?? settings.tieBreak ?? true, finalSetSuperTieBreak: nestedRules.finalSetSuperTieBreak ?? rules.finalSetSuperTieBreak ?? settings.finalSetSuperTieBreak ?? false };
+  const tournamentRules = settings.ruleConfiguration || {};
+  const matchRules = match?.ruleConfiguration || {};
+  const rules = { ...tournamentRules, ...matchRules };
+  const nestedRules = { ...(tournamentRules.rules || {}), ...(matchRules.rules || {}) };
+  const sport = match?.sport || settings.sport || activeTournament?.sport || rules.sport || nestedRules.sport || "pickleball";
+  let scoringFormat = match?.scoringFormat || settings.scoringFormat || rules.scoringFormat || nestedRules.scoringFormat || "points";
+  if ([rules.scoringSystem, nestedRules.scoringSystem, settings.scoringSystem].includes(TRADITIONAL_SCORING_FORMAT)) {
+    scoringFormat = TRADITIONAL_SCORING_FORMAT;
+  }
+  const isTraditional = ["tennis", "padel"].includes(sport) && scoringFormat === TRADITIONAL_SCORING_FORMAT;
+  const pointsToWin = Math.max(1, Number(match?.pointsToWin || activeTournament?.pointsToWin || nestedRules.targetScore || rules.targetScore || 15));
+  const winBy = Math.max(1, Number(match?.winBy || activeTournament?.winBy || settings.winBy || nestedRules.winBy || rules.winBy || 1));
+  return { sport, scoringFormat, isTraditional, pointsToWin, winBy, setsToWin: Math.ceil(Number(nestedRules.sets || rules.sets || settings.sets || 1) / 2), gamesPerSet: Number(nestedRules.gamesPerSet || rules.gamesPerSet || settings.gamesPerSet || 6), tieBreak: nestedRules.tieBreak ?? rules.tieBreak ?? settings.tieBreak ?? true, finalSetSuperTieBreak: nestedRules.finalSetSuperTieBreak ?? rules.finalSetSuperTieBreak ?? settings.finalSetSuperTieBreak ?? false };
 }
 
 function ensureTraditionalScore(match = currentMatch) {
@@ -152,7 +160,10 @@ function startRefereeFlow() {
 
 function startCreateTournamentFlow() {
   workflowIntent = "create";
-  startAdminAuthentication("Create Tournament");
+  currentCourt = "admin";
+  showOnlyScreen("dashboard-screen");
+  switchTab("builder");
+  initializeTournamentBuilder();
 }
 
 function startAdminFlow() {
@@ -671,19 +682,9 @@ function loginSuccess(court, userId) {
 }
 
 function continueFromWelcome() {
-  const savedCourt = localStorage.getItem("saved_court");
-  const savedUid = localStorage.getItem("saved_uid");
-
-  if (savedCourt && savedUid) {
-    loginSuccess(savedCourt === "admin" ? "admin" : parseInt(savedCourt, 10), savedUid);
-    return;
-  }
-
-  workflowIntent = "create";
-  currentCourt = "admin";
-  showOnlyScreen("dashboard-screen");
-  switchTab("builder");
-  initializeTournamentBuilder();
+  workflowIntent = null;
+  currentCourt = null;
+  showOnlyScreen("home-screen");
 }
 
 function checkAutologin() {
@@ -2026,7 +2027,7 @@ function buildDraftMatches() {
       if (group.length < playersPerMatch) continue;
       const id = `draft-${matchNumber}`;
       const midpoint = singles ? 1 : 2;
-      matches[id] = { id, court: courtIndex + 1, round, time: formatDraftTime(round - 1), teamA: group.slice(0, midpoint), teamB: group.slice(midpoint), teamAScore: 0, teamBScore: 0, status: "scheduled", assignmentStatus: round === 1 ? "next-ready" : "waiting", scoreHistory: [], startedAt: null, finalizedAt: null, finalizedBy: null, finishReason: null };
+      matches[id] = { id, court: courtIndex + 1, round, time: formatDraftTime(round - 1), teamA: group.slice(0, midpoint), teamB: group.slice(midpoint), teamAScore: 0, teamBScore: 0, status: "scheduled", assignmentStatus: round === 1 ? "next-ready" : "waiting", sport: builderDraft.sport, scoringFormat: builderDraft.scoringFormat, ruleConfiguration: builderDraft.ruleConfiguration, pointsToWin: builderDraft.pointsToWin, winBy: builderDraft.winBy, tennisScore: builderDraft.scoringFormat === TRADITIONAL_SCORING_FORMAT ? { pointA: 0, pointB: 0, gamesA: 0, gamesB: 0, setsA: 0, setsB: 0, completedSets: [] } : null, scoreHistory: [], startedAt: null, finalizedAt: null, finalizedBy: null, finishReason: null };
       matchNumber += 1;
     }
   }
