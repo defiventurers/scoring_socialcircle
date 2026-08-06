@@ -516,7 +516,9 @@ window.addEventListener("DOMContentLoaded", () => {
   incrementScore = async function incrementSharedScore(team) {
     if (!currentMatch || currentMatch.status === "finalized") return;
     const targetScore = Number(activeTournament?.pointsToWin || 15);
-    const maxScore = targetScore + Math.max(1, Number(activeTournament?.winBy || 1)) - 1;
+    const configuredRules = activeTournament?.settings?.ruleConfiguration?.rules || activeTournament?.settings?.ruleConfiguration || {};
+    const configuredCap = Number(configuredRules.maximumCap || activeTournament?.settings?.maximumCap || 99);
+    const maxScore = Number.isInteger(configuredCap) && configuredCap >= targetScore ? configuredCap : 99;
     if (currentMatch.teamAScore >= maxScore || currentMatch.teamBScore >= maxScore) {
       triggerFinalizeModal();
       return;
@@ -552,7 +554,9 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!currentMatch || currentMatch.status === "finalized" || activeTournament?.settings?.allowManualScoreOverrides === false) return;
     const targetScore = Number(activeTournament?.pointsToWin || 15);
     const winBy = Number(activeTournament?.winBy || 1);
-    const maxScore = targetScore + winBy - 1;
+    const configuredRules = activeTournament?.settings?.ruleConfiguration?.rules || activeTournament?.settings?.ruleConfiguration || {};
+    const configuredCap = Number(configuredRules.maximumCap || activeTournament?.settings?.maximumCap || 99);
+    const maxScore = Number.isInteger(configuredCap) && configuredCap >= targetScore ? configuredCap : 99;
     const scoreA = document.getElementById("quick-score-a");
     const scoreB = document.getElementById("quick-score-b");
     scoreA.max = String(maxScore); scoreB.max = String(maxScore);
@@ -576,7 +580,9 @@ window.addEventListener("DOMContentLoaded", () => {
     const isTimeLimit = Boolean(document.getElementById("quick-score-time-limit")?.checked);
     const targetScore = Number(activeTournament?.pointsToWin || 15);
     const winBy = Number(activeTournament?.winBy || 1);
-    const maxScore = targetScore + winBy - 1;
+    const configuredRules = activeTournament?.settings?.ruleConfiguration?.rules || activeTournament?.settings?.ruleConfiguration || {};
+    const configuredCap = Number(configuredRules.maximumCap || activeTournament?.settings?.maximumCap || 99);
+    const maxScore = Number.isInteger(configuredCap) && configuredCap >= targetScore ? configuredCap : 99;
     const errorEl = document.getElementById("quick-score-validation-error");
 
     function showValidation(message) {

@@ -61,9 +61,21 @@ export default async function handler(req, res) {
     const targetScore = Math.max(1, Number(tournament.pointsToWin || 15));
     const winBy = Math.max(1, Number(tournament.winBy || 1));
     const settings = tournament.settings || {};
+    const configuredRules = settings.ruleConfiguration?.rules || settings.ruleConfiguration || {};
+    const serviceRules = String(configuredRules.serviceRules || settings.serviceRules || (configuredRules.sport === 'pickleball' || settings.sport === 'pickleball' ? 'official-side-out' : 'rotate-every-2'));
+    const getServingTeam = (currentMatch) => {
+      if (serviceRules === 'official-side-out') {
+        return currentMatch.metadata?.serviceState?.servingTeam === 'B' ? 'B' : 'A';
+      }
+      const frequency = Math.max(1, Number(configuredRules.serviceRotationFrequency || settings.serviceRotationPoints || 2));
+      return Math.floor((Number(currentMatch.teamAScore || 0) + Number(currentMatch.teamBScore || 0)) / frequency) % 2 === 0 ? 'A' : 'B';
+    };
+    const toggleTeam = (team) => team === 'A' ? 'B' : 'A';
+    const maximumCap = Number(configuredRules.maximumCap || settings.maximumCap || 99);
+    const maxScore = Number.isInteger(maximumCap) && maximumCap >= targetScore ? maximumCap : 99;
     const allowManualScoreOverrides = settings.allowManualScoreOverrides !== false;
     const allowTimeLimitResults = settings.allowTimeLimitResults !== false;
-    const isIntegerScore = (value) => Number.isInteger(value) && value >= 0 && value <= targetScore + winBy - 1;
+    const isIntegerScore = (value) => Number.isInteger(value) && value >= 0 && value <= maxScore;
 
     if (action === 'resetAll') {
       if (session.role !== 'admin') {
@@ -82,6 +94,7 @@ export default async function handler(req, res) {
           finalized_by = NULL,
           finish_reason = NULL,
           winner = NULL,
+          metadata = metadata - 'serviceState',
           version = version + 1,
           updated_at = NOW()
         WHERE tournament_id = ${tournamentId}
@@ -116,9 +129,15 @@ export default async function handler(req, res) {
       if (match.status === 'finalized') {
         return sendJson(res, 409, { error: 'This match is finalized and locked.', match });
       }
-      if (match.teamAScore >= targetScore + winBy - 1 || match.teamBScore >= targetScore + winBy - 1) {
+      if (match.teamAScore >= maxScore || match.teamBScore >= maxScore) {
         return sendJson(res, 409, { error: 'The target score is already reached.', match });
       }
+
+      const servingTeam = getServingTeam(match);
+      const sideOutOnly = serviceRules === 'official-side-out' && servingTeam !== team;
+      const nextMetadata = sideOutOnly
+        ? { ...(match.metadata || {}), serviceState: { servingTeam: toggleTeam(servingTeam) } }
+        : (match.metadata || {});
 
       updatedMatch = await runVersionedUpdate(
         sql,
@@ -128,11 +147,13 @@ export default async function handler(req, res) {
             score_history = score_history || jsonb_build_array(
               jsonb_build_object(
                 'teamAScore', team_a_score,
-                'teamBScore', team_b_score
+                'teamBScore', team_b_score,
+                'serviceState', metadata->'serviceState'
               )
             ),
-            team_a_score = team_a_score + ${team === 'A' ? 1 : 0},
-            team_b_score = team_b_score + ${team === 'B' ? 1 : 0},
+            metadata = ${JSON.stringify(nextMetadata)}::JSONB,
+            team_a_score = team_a_score + ${!sideOutOnly && team === 'A' ? 1 : 0},
+            team_b_score = team_b_score + ${!sideOutOnly && team === 'B' ? 1 : 0},
             status = CASE WHEN status = 'scheduled' THEN 'active' ELSE status END,
             started_at = COALESCE(started_at, NOW()),
             version = version + 1,
@@ -142,8 +163,8 @@ export default async function handler(req, res) {
             AND id = ${matchId}
             AND version = ${expectedVersion}
             AND status <> 'finalized'
-            AND team_a_score < ${targetScore + winBy - 1}
-            AND team_b_score < ${targetScore + winBy - 1}
+            AND team_a_score < ${maxScore}
+            AND team_b_score < ${maxScore}
           RETURNING id
         `,
         matchId,
@@ -162,6 +183,9 @@ export default async function handler(req, res) {
       const previous = history[history.length - 1];
       const remainingHistory = history.slice(0, -1);
       const returnsToScheduled = previous.teamAScore === 0 && previous.teamBScore === 0;
+      const previousMetadata = { ...(match.metadata || {}) };
+      if (previous.serviceState) previousMetadata.serviceState = previous.serviceState;
+      else delete previousMetadata.serviceState;
 
       updatedMatch = await runVersionedUpdate(
         sql,
@@ -171,6 +195,7 @@ export default async function handler(req, res) {
             team_a_score = ${Number(previous.teamAScore)},
             team_b_score = ${Number(previous.teamBScore)},
             score_history = ${JSON.stringify(remainingHistory)}::JSONB,
+            metadata = ${JSON.stringify(previousMetadata)}::JSONB,
             status = ${returnsToScheduled ? 'scheduled' : 'active'},
             started_at = CASE WHEN ${returnsToScheduled} THEN NULL ELSE started_at END,
             version = version + 1,
@@ -195,7 +220,7 @@ export default async function handler(req, res) {
       const isTimeLimit = Boolean(body.isTimeLimit);
 
       if (!isIntegerScore(scoreA) || !isIntegerScore(scoreB)) {
-        return sendJson(res, 400, { error: `Scores must be whole numbers from 0 to ${targetScore + winBy - 1}.` });
+        return sendJson(res, 400, { error: `Scores must be whole numbers from 0 to ${maxScore}.` });
       }
       if (scoreA === scoreB) {
         return sendJson(res, 400, { error: 'Tied scores cannot be saved.' });
@@ -297,6 +322,7 @@ export default async function handler(req, res) {
             finalized_at = NULL,
             finalized_by = NULL,
             winner = NULL,
+            metadata = metadata - 'serviceState',
             version = version + 1,
             updated_at = NOW()
           WHERE tournament_id = ${tournamentId}
@@ -328,6 +354,7 @@ export default async function handler(req, res) {
             finalized_by = NULL,
             finish_reason = NULL,
             winner = NULL,
+            metadata = metadata - 'serviceState',
             version = version + 1,
             updated_at = NOW()
           WHERE tournament_id = ${tournamentId}
