@@ -695,8 +695,9 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!Number.isInteger(builderNumber("builder-player-count")) || builderNumber("builder-player-count") < 4 || builderNumber("builder-player-count") > 40 || builderNumber("builder-player-count") % 2) errors.push("Players must be an even number from 4 to 40.");
     if (!Number.isInteger(builderNumber("builder-court-count")) || builderNumber("builder-court-count") < 1 || builderNumber("builder-court-count") > 4) errors.push("Courts must be from 1 to 4.");
     if (!Number.isInteger(builderNumber("builder-match-duration")) || builderNumber("builder-match-duration") < 1 || builderNumber("builder-match-duration") > 180) errors.push("Match duration must be from 1 to 180 minutes.");
-    if (!Number.isInteger(builderNumber("builder-points-to-win")) || builderNumber("builder-points-to-win") < 1 || builderNumber("builder-points-to-win") > 99) errors.push("Points to win must be from 1 to 99.");
-    if (!Number.isInteger(builderNumber("builder-win-by")) || builderNumber("builder-win-by") < 1 || builderNumber("builder-win-by") > 10) errors.push("Win by must be from 1 to 10.");
+    const pointScoringRequired = !(["tennis", "padel"].includes(builderDraft.sport) && builderDraft.scoringFormat !== "points");
+    if (pointScoringRequired && (!Number.isInteger(builderNumber("builder-points-to-win")) || builderNumber("builder-points-to-win") < 1 || builderNumber("builder-points-to-win") > 99)) errors.push("Points to win must be from 1 to 99.");
+    if (pointScoringRequired && (!Number.isInteger(builderNumber("builder-win-by")) || builderNumber("builder-win-by") < 1 || builderNumber("builder-win-by") > 10)) errors.push("Win by must be from 1 to 10.");
     if (!Number.isInteger(builderNumber("builder-round-count")) || builderNumber("builder-round-count") < 1 || builderNumber("builder-round-count") > 100) errors.push("Rounds must be from 1 to 100.");
     if (!Number.isInteger(builderNumber("builder-round-gap")) || builderNumber("builder-round-gap") < 0 || builderNumber("builder-round-gap") > 120) errors.push("Time between rounds must be from 0 to 120 minutes.");
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(builderValue("builder-start-time") || ""))) errors.push("Choose a valid tournament start time.");
@@ -730,7 +731,7 @@ window.addEventListener("DOMContentLoaded", () => {
       document.getElementById("builder-time-limit-results").checked = builderTournament.settings?.allowTimeLimitResults !== false;
       document.getElementById("builder-location").value = builderTournament.location || "";
       document.getElementById("builder-date").value = builderTournament.date ? String(builderTournament.date).slice(0, 10) : "";
-      showBuilderStep(builderPlayers.length ? "players" : "details");
+      showBuilderStep(builderPlayers.length ? "players" : "sport");
       if (builderPlayers.length) renderPlayerInputs("builder-player-grid", builderPlayers);
       switchTab("builder");
     } catch (error) { alert(error.message); }
@@ -754,6 +755,7 @@ window.addEventListener("DOMContentLoaded", () => {
     builderPlayers = [];
     builderMatches = [];
     builderTournamentType = "mixed-doubles";
+    builderDraft = { sport: "pickleball", tournamentType: "mixed-doubles", scoringMode: "official", scoringFormat: "points" };
     setBuilderMessage();
     document.getElementById("builder-title").textContent = "Create Tournament";
     document.getElementById("builder-name").value = "";
@@ -768,13 +770,17 @@ window.addEventListener("DOMContentLoaded", () => {
     document.getElementById("builder-auto-timer").checked = true;
     document.getElementById("builder-manual-overrides").checked = true;
     document.getElementById("builder-time-limit-results").checked = true;
+    renderSportChoices();
+    setupPresetControls();
+    selectSport(builderDraft.sport);
     switchTab("builder");
+    showBuilderStep("sport");
     try {
       const payload = await requestJson("/api/tournaments");
       formatDefinitions = payload.formatDefinitions || {};
       const select = document.getElementById("builder-format");
       select.innerHTML = Object.values(formatDefinitions).map((format) => `<option value="${format.id}">${escapeHtml(format.name)}</option>`).join("");
-      showBuilderStep("type");
+      showFormatInformation();
     } catch (error) {
       setBuilderMessage(error.message || "Could not load tournament formats.", "error");
     }
@@ -782,6 +788,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   selectTournamentType = function selectBuilderTournamentType(type) {
     builderTournamentType = type;
+    builderDraft.tournamentType = type;
     document.querySelectorAll("[data-tournament-type]").forEach((button) => {
       button.classList.toggle("selected", button.dataset.tournamentType === type);
     });
@@ -800,24 +807,30 @@ window.addEventListener("DOMContentLoaded", () => {
 
   confirmTournamentFormat = function confirmBuilderTournamentFormat() {
     document.getElementById("format-info-card").open = false;
-    showBuilderStep("details");
+    showBuilderStep("count");
   };
 
-  showBuilderStep = function showSharedBuilderStep(step) {
-    const steps = ["type", "format", "details", "players", "fixtures", "preview", "publish"];
-    const labels = ["Tournament type", "Format", "Settings", "Players", "Fixtures", "Preview", "Publish"];
+  showBuilderStep = function showSharedBuilderStep(step = "sport") {
+    const baseSteps = window.BUILDER_STEPS || [];
+    const baseLabels = window.BUILDER_STEP_NAMES || [];
+    const previewIndex = baseSteps.indexOf("preview");
+    const steps = previewIndex >= 0 ? [...baseSteps.slice(0, previewIndex), "fixtures", ...baseSteps.slice(previewIndex)] : [...baseSteps, "fixtures"];
+    const labels = previewIndex >= 0 ? [...baseLabels.slice(0, previewIndex), "Fixtures", ...baseLabels.slice(previewIndex)] : [...baseLabels, "Fixtures"];
     const index = Math.max(0, steps.indexOf(step));
     setBuilderMessage();
     document.querySelectorAll(".builder-step").forEach((element) => element.classList.remove("active"));
-    document.getElementById(`builder-${step}-step`)?.classList.add("active");
-    const activeHeading = document.querySelector(`#builder-${step}-step h4`);
+    const sectionStep = { event: "type" }[step] || step;
+    if (step === "match-scoring") renderScoringConfiguration();
+    document.getElementById(`builder-${sectionStep}-step`)?.classList.add("active");
+    const activeHeading = document.querySelector(`#builder-${sectionStep}-step h4`);
     if (activeHeading) {
       activeHeading.tabIndex = -1;
       activeHeading.focus({ preventScroll: true });
     }
-    document.getElementById("builder-step-count").textContent = `Step ${index + 1} of 7`;
+    document.getElementById("builder-step-count").textContent = `Step ${index + 1} of ${steps.length}`;
     document.getElementById("builder-step-name").textContent = labels[index];
-    document.getElementById("builder-progress-bar").style.width = `${((index + 1) / 7) * 100}%`;
+    document.getElementById("builder-progress-bar").style.width = `${((index + 1) / steps.length) * 100}%`;
+    document.querySelector(".progress-track")?.setAttribute("aria-valuemax", String(steps.length));
     document.querySelector(".progress-track")?.setAttribute("aria-valuenow", String(index + 1));
     if (step === "publish" && builderTournament) {
       const summary = document.getElementById("builder-publish-summary");
@@ -856,12 +869,14 @@ window.addEventListener("DOMContentLoaded", () => {
       name,
       format: document.getElementById("builder-format").value,
       tournamentType: builderTournamentType,
+      sport: builderDraft.sport || "pickleball",
+      scoringMode: builderDraft.scoringMode || "official",
       maxPlayers: builderNumber("builder-player-count"),
       numberOfCourts: builderNumber("builder-court-count"),
       numberOfRounds: builderNumber("builder-round-count"),
       matchDurationMinutes: builderNumber("builder-match-duration"),
-      pointsToWin: builderNumber("builder-points-to-win"),
-      winBy: builderNumber("builder-win-by"),
+      pointsToWin: (["tennis", "padel"].includes(builderDraft.sport) && builderDraft.scoringFormat !== "points") ? 0 : builderNumber("builder-points-to-win"),
+      winBy: (["tennis", "padel"].includes(builderDraft.sport) && builderDraft.scoringFormat !== "points") ? 0 : builderNumber("builder-win-by"),
       timeBetweenRoundsMinutes: builderNumber("builder-round-gap"),
       startTime: builderValue("builder-start-time"),
       automaticRoundTimer: Boolean(document.getElementById("builder-auto-timer").checked),
@@ -870,6 +885,7 @@ window.addEventListener("DOMContentLoaded", () => {
       location: builderValue("builder-location"),
       date: builderValue("builder-date") || null,
       status: "draft",
+      settings: { sport: builderDraft.sport || "pickleball", scoringMode: builderDraft.scoringMode || "official", ruleOverrides: collectRuleInputs(), scoringFormat: builderDraft.scoringFormat || "points" },
     };
     writeInFlight = true;
     setActionPending("builder-save-settings", true, "Saving…");
@@ -878,12 +894,12 @@ window.addEventListener("DOMContentLoaded", () => {
       const requestBody = builderTournament ? { ...body, action: "update", tournamentId: builderTournament.id } : body;
       const payload = await requestJson("/api/tournaments", { method: builderTournament ? "PATCH" : "POST", body: JSON.stringify(requestBody) });
       builderTournament = payload.tournament;
-      const directory = await requestJson("/api/players");
-      const byLabel = new Map((directory.players || []).map((player) => [player.label, player]));
-      builderPlayers = permanentLabels(builderTournament.maxPlayers).map((player) => ({ ...player, displayName: byLabel.get(player.label)?.displayName || "" }));
-      renderPlayerInputs("builder-player-grid", builderPlayers);
+      if (builderPlayers.length) {
+        await requestJson("/api/tournaments", { method: "PATCH", body: JSON.stringify({ action: "assignPlayers", tournamentId: builderTournament.id, players: builderPlayers }) });
+      }
+      document.getElementById("builder-assignment-summary").textContent = `${builderPlayers.length} permanent labels assigned. Names are saved independently from fixture labels.`;
       setBuilderMessage("Settings saved.", "success");
-      showBuilderStep("players");
+      showBuilderStep("fixtures");
     } catch (error) {
       setBuilderMessage(error.message || "Could not save tournament settings.", "error");
     } finally {
@@ -892,22 +908,28 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   };
 
-  saveTournamentPlayers = async function saveSharedTournamentPlayers() {
-    if (!builderTournament || writeInFlight) return;
-    builderPlayers = Array.from(document.querySelectorAll("#builder-player-grid .player-display-name")).map((input) => ({ label: input.dataset.label, gender: input.dataset.gender, displayName: input.value.trim() }));
-    writeInFlight = true;
-    setActionPending("builder-save-players", true, "Saving…");
-    setBuilderMessage("Saving roster…", "loading");
-    try {
-      await requestJson("/api/tournaments", { method: "PATCH", body: JSON.stringify({ action: "assignPlayers", tournamentId: builderTournament.id, players: builderPlayers }) });
-      document.getElementById("builder-assignment-summary").textContent = `${builderPlayers.length} permanent labels assigned. Names are saved independently from fixture labels.`;
-      showBuilderStep("fixtures");
-    } catch (error) {
-      setBuilderMessage(error.message || "Could not save players.", "error");
-    } finally {
-      writeInFlight = false;
-      setActionPending("builder-save-players", false);
+
+  preparePlayerNamesStep = async function prepareSharedPlayerNamesStep() {
+    const count = builderNumber("builder-player-count");
+    if (!Number.isInteger(count) || count < 4 || count > 40 || count % 2 !== 0) {
+      setBuilderMessage("Player count must be a valid even number from 4 to 40.", "error");
+      return;
     }
+    try {
+      const directory = await requestJson("/api/players");
+      const byLabel = new Map((directory.players || []).map((player) => [player.label, player]));
+      builderPlayers = permanentLabels(count).map((player) => ({ ...player, displayName: byLabel.get(player.label)?.displayName || "" }));
+      renderPlayerInputs("builder-player-grid", builderPlayers);
+      showBuilderStep("players");
+    } catch (error) {
+      setBuilderMessage(error.message || "Could not load player labels.", "error");
+    }
+  };
+
+  saveTournamentPlayers = async function saveSharedTournamentPlayers() {
+    if (writeInFlight) return;
+    builderPlayers = Array.from(document.querySelectorAll("#builder-player-grid .player-display-name")).map((input) => ({ label: input.dataset.label, gender: input.dataset.gender, displayName: input.value.trim() }));
+    showBuilderStep("details");
   };
 
   generateBuilderFixtures = async function generateSharedBuilderFixtures() {
