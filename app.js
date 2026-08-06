@@ -35,7 +35,52 @@ function getActiveScoringRules() {
   const scoringFormat = settings.scoringFormat || rules.scoringFormat || nestedRules.scoringFormat || (nestedRules.scoringSystem === "traditional-tennis" || rules.scoringSystem === "traditional-tennis" ? "traditional-tennis" : "points");
   const pointsToWin = Math.max(1, Number(activeTournament?.pointsToWin || nestedRules.targetScore || rules.targetScore || 15));
   const winBy = Math.max(1, Number(activeTournament?.winBy || settings.winBy || nestedRules.winBy || rules.winBy || 1));
-  return { sport, scoringFormat, isTraditional: ["tennis", "padel"].includes(sport) && scoringFormat === "traditional-tennis", pointsToWin, winBy, setsToWin: Math.ceil(Number(nestedRules.sets || rules.sets || settings.sets || 1) / 2), gamesPerSet: Number(nestedRules.gamesPerSet || rules.gamesPerSet || settings.gamesPerSet || 6), tieBreak: nestedRules.tieBreak ?? rules.tieBreak ?? settings.tieBreak ?? true, finalSetSuperTieBreak: nestedRules.finalSetSuperTieBreak ?? rules.finalSetSuperTieBreak ?? settings.finalSetSuperTieBreak ?? false };
+  return { sport, scoringFormat, isTraditional: ["tennis", "padel"].includes(sport) && scoringFormat === "traditional-tennis", pointsToWin, winBy, setsToWin: Math.ceil(Number(nestedRules.sets || rules.sets || settings.sets || 1) / 2), gamesPerSet: Number(nestedRules.gamesPerSet || rules.gamesPerSet || settings.gamesPerSet || 6), tieBreak: nestedRules.tieBreak ?? rules.tieBreak ?? settings.tieBreak ?? true, finalSetSuperTieBreak: nestedRules.finalSetSuperTieBreak ?? rules.finalSetSuperTieBreak ?? settings.finalSetSuperTieBreak ?? false, serviceRules: nestedRules.serviceRules || rules.serviceRules || settings.serviceRules, serviceRotationFrequency: nestedRules.serviceRotationFrequency || rules.serviceRotationFrequency || settings.serviceRotationPoints };
+}
+
+
+function getServiceRules(rules = getActiveScoringRules()) {
+  const settings = activeTournament?.settings || {};
+  const configuration = settings.ruleConfiguration || {};
+  const nested = configuration.rules || {};
+  return String(nested.serviceRules || configuration.serviceRules || settings.serviceRules || rules.serviceRules || (rules.sport === "pickleball" ? "official-side-out" : "rotate-every-2"));
+}
+
+function getServiceRotationFrequency(rules = getActiveScoringRules()) {
+  const settings = activeTournament?.settings || {};
+  const configuration = settings.ruleConfiguration || {};
+  const nested = configuration.rules || {};
+  return Math.max(1, Number(nested.serviceRotationFrequency || configuration.serviceRotationFrequency || settings.serviceRotationPoints || 2));
+}
+
+function ensureServiceState(match = currentMatch) {
+  if (!match) return { servingTeam: "A" };
+  const persistedState = match.serviceState || match.metadata?.serviceState;
+  if (!persistedState || !["A", "B"].includes(persistedState.servingTeam)) {
+    match.serviceState = { servingTeam: "A" };
+  } else {
+    match.serviceState = { servingTeam: persistedState.servingTeam };
+  }
+  if (match.metadata) match.metadata.serviceState = match.serviceState;
+  return match.serviceState;
+}
+
+function calculateServingTeam(match = currentMatch, rules = getActiveScoringRules()) {
+  if (!match) return "A";
+  const serviceRules = getServiceRules(rules);
+  if (serviceRules === "official-side-out") return ensureServiceState(match).servingTeam;
+  const frequency = getServiceRotationFrequency(rules);
+  const score = rules.isTraditional ? ensureTraditionalScore(match) : null;
+  const totalPoints = rules.isTraditional
+    ? score.pointA + score.pointB + score.gamesA + score.gamesB
+    : Number(match.teamAScore || 0) + Number(match.teamBScore || 0);
+  return Math.floor(totalPoints / frequency) % 2 === 0 ? "A" : "B";
+}
+
+function toggleServingTeam(match = currentMatch) {
+  const state = ensureServiceState(match);
+  state.servingTeam = state.servingTeam === "A" ? "B" : "A";
+  return state.servingTeam;
 }
 
 function ensureTraditionalScore(match = currentMatch) {
@@ -817,10 +862,7 @@ function renderActiveScoreboard() {
   }
   
   // Serving status
-  const tennisScore = scoringRules.isTraditional ? ensureTraditionalScore(currentMatch) : null;
-  const totalPoints = scoringRules.isTraditional ? tennisScore.pointA + tennisScore.pointB + tennisScore.gamesA + tennisScore.gamesB : currentMatch.teamAScore + currentMatch.teamBScore;
-  const serviceBlock = Math.floor(totalPoints / 2);
-  const servingTeam = serviceBlock % 2 === 0 ? "A" : "B";
+  const servingTeam = calculateServingTeam(currentMatch, scoringRules);
   
   const badgeA = document.getElementById("serve-badge-a");
   const badgeB = document.getElementById("serve-badge-b");
@@ -929,16 +971,22 @@ function incrementScore(team) {
   currentHistory.push({
     teamAScore: currentMatch.teamAScore,
     teamBScore: currentMatch.teamBScore,
-    tennisScore: currentMatch.tennisScore ? JSON.parse(JSON.stringify(currentMatch.tennisScore)) : null
+    tennisScore: currentMatch.tennisScore ? JSON.parse(JSON.stringify(currentMatch.tennisScore)) : null,
+    serviceState: currentMatch.serviceState ? JSON.parse(JSON.stringify(currentMatch.serviceState)) : null
   });
   
   let newScoreA = currentMatch.teamAScore;
   let newScoreB = currentMatch.teamBScore;
   
+  const serviceRules = getServiceRules(scoringRules);
+  let sideOutOnly = false;
   if (scoringRules.isTraditional) {
     awardTraditionalPoint(team);
     newScoreA = currentMatch.teamAScore;
     newScoreB = currentMatch.teamBScore;
+  } else if (serviceRules === "official-side-out" && calculateServingTeam(currentMatch, scoringRules) !== team) {
+    toggleServingTeam(currentMatch);
+    sideOutOnly = true;
   } else if (team === "A") {
     newScoreA += 1;
   } else {
@@ -962,7 +1010,11 @@ function incrementScore(team) {
   renderActiveScoreboard();
   
   // Speak vocal call
-  speakCurrentScore(scoringRules.isTraditional ? tennisPointLabel("A") : newScoreA, scoringRules.isTraditional ? tennisPointLabel("B") : newScoreB, team);
+  if (sideOutOnly) {
+    speakWords(`Side out. Team ${calculateServingTeam(currentMatch, scoringRules)} serving.`);
+  } else {
+    speakCurrentScore(scoringRules.isTraditional ? tennisPointLabel("A") : newScoreA, scoringRules.isTraditional ? tennisPointLabel("B") : newScoreB, team);
+  }
   
   // Commit to DB (Firebase or LocalStorage)
   saveMatchToDatabase(currentMatch);
@@ -1014,6 +1066,7 @@ function performUndo() {
   currentMatch.teamAScore = prevState.teamAScore;
   currentMatch.teamBScore = prevState.teamBScore;
   currentMatch.tennisScore = prevState.tennisScore ? JSON.parse(JSON.stringify(prevState.tennisScore)) : currentMatch.tennisScore;
+  currentMatch.serviceState = prevState.serviceState ? JSON.parse(JSON.stringify(prevState.serviceState)) : currentMatch.serviceState;
   currentMatch.scoreHistory = history;
   
   // If reverted back to 0-0, reset active status if scheduled previously
@@ -1112,7 +1165,9 @@ function saveQuickScores() {
   const currentHistory = currentMatch.scoreHistory ? [...currentMatch.scoreHistory] : [];
   currentHistory.push({
     teamAScore: currentMatch.teamAScore,
-    teamBScore: currentMatch.teamBScore
+    teamBScore: currentMatch.teamBScore,
+    tennisScore: currentMatch.tennisScore ? JSON.parse(JSON.stringify(currentMatch.tennisScore)) : null,
+    serviceState: currentMatch.serviceState ? JSON.parse(JSON.stringify(currentMatch.serviceState)) : null
   });
   
   currentMatch.teamAScore = scoreA;
@@ -1297,9 +1352,7 @@ function speakCurrentScore(scoreA, scoreB, scoringTeam) {
   }
   
   // Calculate serving side
-  const totalPoints = scoreA + scoreB;
-  const serviceBlock = Math.floor(totalPoints / 2);
-  const servingTeam = serviceBlock % 2 === 0 ? "Team A" : "Team B";
+  const servingTeam = `Team ${calculateServingTeam(currentMatch, getActiveScoringRules())}`;
   
   phrase += ` ${servingTeam} serving.`;
   
