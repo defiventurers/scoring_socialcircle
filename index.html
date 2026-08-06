@@ -453,6 +453,11 @@
                   <label class="setup-field"><span>Points to win</span><div class="preset-grid" data-preset-for="builder-points-to-win" data-values="11,15,21" data-custom="true"></div><input id="builder-points-to-win" class="form-input preset-custom-input hidden" type="number" inputmode="numeric" min="1" max="99" value="15" /></label>
                   <label class="setup-field"><span>Win by</span><div class="preset-grid" data-preset-for="builder-win-by" data-values="1,2" data-custom="true"></div><input id="builder-win-by" class="form-input preset-custom-input hidden" type="number" inputmode="numeric" min="1" max="10" value="1" /></label>
                 </div>
+                <div id="builder-traditional-scoring-fields" class="settings-grid hidden">
+                  <label class="setup-field"><span>Number of sets</span><select id="builder-tennis-sets" class="form-input"><option value="1">1 Set</option><option value="3" selected>Best of 3</option><option value="5">Best of 5</option></select></label>
+                  <label class="setup-field"><span>Games per set</span><select id="builder-games-per-set" class="form-input"><option value="4">4 (Fast4)</option><option value="6" selected>6 (Standard)</option></select></label>
+                  <label class="setup-field"><span>Tiebreak</span><select id="builder-tiebreak" class="form-input"><option value="6-6" selected>At 6–6</option><option value="final-set-super">Super Tiebreak Final Set</option><option value="none">No Tiebreak</option></select></label>
+                </div>
                 <div class="builder-actions sticky-actions"><button class="btn btn-outline" onclick="showBuilderStep('details')">Previous</button><button class="btn btn-primary" onclick="showBuilderStep('duration')">Continue</button></div>
               </section>
 

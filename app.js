@@ -17,7 +17,7 @@ let isSaving = false;
 let workflowIntent = null;
 let selectedTournamentId = null;
 let tournamentCatalog = [];
-let builderDraft = { sport: "pickleball", tournamentType: "mixed-doubles", scoringMode: "official" };
+let builderDraft = { sport: "pickleball", tournamentType: "mixed-doubles", scoringMode: "official", scoringFormat: "points" };
 
 const SPORT_RULE_PRESETS = {
   tennis: { name: "Tennis", events: ["mens-singles", "womens-singles", "mens-doubles", "womens-doubles", "mixed-doubles"], defaults: { scoringSystem: "traditional-tennis", matchFormat: "best-of-3-sets", sets: 3, gamesPerSet: 6, winBy: 2, tieBreak: true, tieBreakAt: "6-6", tieBreakPoints: 7, finalSetSuperTieBreak: false, noAd: false, rallyPoint: false, serviceRules: "standard", courtChanges: "standard" }, editable: ["sets", "gamesPerSet", "tieBreak", "tieBreakPoints", "finalSetSuperTieBreak", "noAd", "rallyPoint"] },
@@ -27,6 +27,71 @@ const SPORT_RULE_PRESETS = {
   "table-tennis": { name: "Table Tennis", events: ["mens-singles", "womens-singles", "mens-doubles", "womens-doubles", "mixed-doubles"], defaults: { scoringSystem: "rally", matchFormat: "best-of-5-games", bestOf: 5, targetScore: 11, winBy: 2, serviceRotationFrequency: 2, serviceRules: "official-ittf" }, editable: ["bestOf", "targetScore", "winBy", "serviceRotationFrequency"] },
 };
 const EVENT_LABELS = { "mens-singles": "Men's Singles", "womens-singles": "Women's Singles", "mens-doubles": "Men's Doubles", "womens-doubles": "Women's Doubles", "mixed-doubles": "Mixed Doubles" };
+function getActiveScoringRules() {
+  const settings = activeTournament?.settings || {};
+  const rules = settings.ruleConfiguration || {};
+  const nestedRules = rules.rules || {};
+  const sport = settings.sport || activeTournament?.sport || rules.sport || nestedRules.sport || "pickleball";
+  const scoringFormat = settings.scoringFormat || rules.scoringFormat || nestedRules.scoringFormat || (nestedRules.scoringSystem === "traditional-tennis" || rules.scoringSystem === "traditional-tennis" ? "traditional-tennis" : "points");
+  const pointsToWin = Math.max(1, Number(activeTournament?.pointsToWin || nestedRules.targetScore || rules.targetScore || 15));
+  const winBy = Math.max(1, Number(activeTournament?.winBy || settings.winBy || nestedRules.winBy || rules.winBy || 1));
+  return { sport, scoringFormat, isTraditional: ["tennis", "padel"].includes(sport) && scoringFormat === "traditional-tennis", pointsToWin, winBy, setsToWin: Math.ceil(Number(nestedRules.sets || rules.sets || settings.sets || 1) / 2), gamesPerSet: Number(nestedRules.gamesPerSet || rules.gamesPerSet || settings.gamesPerSet || 6), tieBreak: nestedRules.tieBreak ?? rules.tieBreak ?? settings.tieBreak ?? true, finalSetSuperTieBreak: nestedRules.finalSetSuperTieBreak ?? rules.finalSetSuperTieBreak ?? settings.finalSetSuperTieBreak ?? false };
+}
+
+function ensureTraditionalScore(match = currentMatch) {
+  if (!match.tennisScore) match.tennisScore = { pointA: 0, pointB: 0, gamesA: 0, gamesB: 0, setsA: 0, setsB: 0, completedSets: [] };
+  return match.tennisScore;
+}
+
+function tennisPointLabel(team, score = ensureTraditionalScore()) {
+  const own = team === "A" ? score.pointA : score.pointB;
+  const other = team === "A" ? score.pointB : score.pointA;
+  if (own >= 3 && other >= 3) {
+    if (own === other) return "Deuce";
+    return own > other ? "Adv" : "40";
+  }
+  return ["0", "15", "30", "40"][Math.min(own, 3)] || "40";
+}
+
+function hasTraditionalGamePoint(score = ensureTraditionalScore()) {
+  return Math.max(score.pointA, score.pointB) >= 4 && Math.abs(score.pointA - score.pointB) >= 2;
+}
+
+function isTraditionalMatchComplete(score = ensureTraditionalScore(), rules = getActiveScoringRules()) {
+  return score.setsA >= rules.setsToWin || score.setsB >= rules.setsToWin;
+}
+
+function awardTraditionalPoint(team) {
+  const rules = getActiveScoringRules();
+  const score = ensureTraditionalScore();
+  if (team === "A") score.pointA += 1; else score.pointB += 1;
+  if (hasTraditionalGamePoint(score)) {
+    const gameWinner = score.pointA > score.pointB ? "A" : "B";
+    if (gameWinner === "A") score.gamesA += 1; else score.gamesB += 1;
+    score.pointA = 0; score.pointB = 0;
+    const gamesWon = Math.max(score.gamesA, score.gamesB);
+    const gameMargin = Math.abs(score.gamesA - score.gamesB);
+    const standardSetWon = gamesWon >= rules.gamesPerSet && gameMargin >= 2;
+    const tieBreakSetWon = rules.tieBreak && gamesWon >= rules.gamesPerSet + 1;
+    if (standardSetWon || tieBreakSetWon) {
+      score.completedSets.push({ a: score.gamesA, b: score.gamesB });
+      if (score.gamesA > score.gamesB) score.setsA += 1; else score.setsB += 1;
+      score.gamesA = 0; score.gamesB = 0;
+    }
+  }
+  currentMatch.teamAScore = score.setsA;
+  currentMatch.teamBScore = score.setsB;
+  return score;
+}
+
+function formatMatchScore(match = currentMatch) {
+  const rules = getActiveScoringRules();
+  if (!rules.isTraditional) return `${match?.teamAScore || 0} – ${match?.teamBScore || 0}`;
+  const score = ensureTraditionalScore(match);
+  const sets = score.completedSets.map((set) => `${set.a}-${set.b}`).join(", ");
+  return `${sets ? `${sets} · ` : ""}${score.gamesA}-${score.gamesB}, ${tennisPointLabel("A", score)}-${tennisPointLabel("B", score)}`;
+}
+
 let loginStep = "tournament";
 
 // Settings and Preferences (Sync with LocalStorage)
@@ -723,7 +788,8 @@ function renderActiveScoreboard() {
   
   // Header Meta
   const configuredRounds = Number(activeTournament?.settings?.numberOfRounds || Math.max(1, ...Object.values(matchesCache).map((match) => Number(match.round || 0))));
-  const targetScore = Number(activeTournament?.pointsToWin || 15);
+  const scoringRules = getActiveScoringRules();
+  const targetScore = scoringRules.pointsToWin;
   const manualOverrides = activeTournament?.settings?.allowManualScoreOverrides !== false;
   document.getElementById("referee-round-title").textContent = `ROUND ${currentMatch.round} OF ${configuredRounds}`;
   document.getElementById("score-round-num").textContent = currentMatch.round;
@@ -740,11 +806,19 @@ function renderActiveScoreboard() {
   document.getElementById("player-b2").textContent = currentMatch.teamB[1] || "Player B2";
   
   // Scores
-  document.getElementById("score-val-a").textContent = currentMatch.teamAScore;
-  document.getElementById("score-val-b").textContent = currentMatch.teamBScore;
+  if (scoringRules.isTraditional) {
+    const tennisScore = ensureTraditionalScore(currentMatch);
+    document.getElementById("score-val-a").textContent = tennisPointLabel("A", tennisScore);
+    document.getElementById("score-val-b").textContent = tennisPointLabel("B", tennisScore);
+    document.getElementById("score-round-num").textContent = `${tennisScore.setsA}-${tennisScore.setsB} sets · ${tennisScore.gamesA}-${tennisScore.gamesB} games`;
+  } else {
+    document.getElementById("score-val-a").textContent = currentMatch.teamAScore;
+    document.getElementById("score-val-b").textContent = currentMatch.teamBScore;
+  }
   
   // Serving status
-  const totalPoints = currentMatch.teamAScore + currentMatch.teamBScore;
+  const tennisScore = scoringRules.isTraditional ? ensureTraditionalScore(currentMatch) : null;
+  const totalPoints = scoringRules.isTraditional ? tennisScore.pointA + tennisScore.pointB + tennisScore.gamesA + tennisScore.gamesB : currentMatch.teamAScore + currentMatch.teamBScore;
   const serviceBlock = Math.floor(totalPoints / 2);
   const servingTeam = serviceBlock % 2 === 0 ? "A" : "B";
   
@@ -787,8 +861,8 @@ function renderActiveScoreboard() {
     btnA.style.opacity = "1";
     btnB.style.opacity = "1";
     
-    // Highlight if target score reached
-    if (currentMatch.teamAScore >= targetScore || currentMatch.teamBScore >= targetScore) {
+    // Highlight if the selected scoring engine says the match is complete
+    if (scoringRules.isTraditional ? isTraditionalMatchComplete(ensureTraditionalScore(currentMatch), scoringRules) : (currentMatch.teamAScore >= targetScore || currentMatch.teamBScore >= targetScore)) {
       finalizeTrigger.className = "btn btn-gold";
       finalizeTrigger.innerHTML = `<i data-lucide="trophy"></i> Ready to Finalize Match!`;
     } else {
@@ -833,12 +907,15 @@ function incrementScore(team) {
     alert("Device is offline. Safe storage pending reconnect.");
   }
   
-  // Core limits: First to 15, rally scoring
-  if (currentMatch.teamAScore >= 15 || currentMatch.teamBScore >= 15) {
-    // Already hit target, prevent further additions unless Admin or Manual Override
-    if (confirm("Target score of 15 already achieved. Finalize this result or enter a manual score instead?")) {
+  const scoringRules = getActiveScoringRules();
+  if (!scoringRules.isTraditional && Math.max(currentMatch.teamAScore, currentMatch.teamBScore) >= scoringRules.pointsToWin && Math.abs(currentMatch.teamAScore - currentMatch.teamBScore) >= scoringRules.winBy) {
+    if (confirm(`Target score of ${scoringRules.pointsToWin} already achieved. Finalize this result or enter a manual score instead?`)) {
       triggerFinalizeModal();
     }
+    return;
+  }
+  if (scoringRules.isTraditional && isTraditionalMatchComplete(ensureTraditionalScore(currentMatch), scoringRules)) {
+    triggerFinalizeModal();
     return;
   }
   
@@ -851,13 +928,18 @@ function incrementScore(team) {
   const currentHistory = currentMatch.scoreHistory ? [...currentMatch.scoreHistory] : [];
   currentHistory.push({
     teamAScore: currentMatch.teamAScore,
-    teamBScore: currentMatch.teamBScore
+    teamBScore: currentMatch.teamBScore,
+    tennisScore: currentMatch.tennisScore ? JSON.parse(JSON.stringify(currentMatch.tennisScore)) : null
   });
   
   let newScoreA = currentMatch.teamAScore;
   let newScoreB = currentMatch.teamBScore;
   
-  if (team === "A") {
+  if (scoringRules.isTraditional) {
+    awardTraditionalPoint(team);
+    newScoreA = currentMatch.teamAScore;
+    newScoreB = currentMatch.teamBScore;
+  } else if (team === "A") {
     newScoreA += 1;
   } else {
     newScoreB += 1;
@@ -867,8 +949,10 @@ function incrementScore(team) {
   const oldA = currentMatch.teamAScore;
   const oldB = currentMatch.teamBScore;
   
-  currentMatch.teamAScore = newScoreA;
-  currentMatch.teamBScore = newScoreB;
+  if (!scoringRules.isTraditional) {
+    currentMatch.teamAScore = newScoreA;
+    currentMatch.teamBScore = newScoreB;
+  }
   currentMatch.scoreHistory = currentHistory;
   if (currentMatch.status === "scheduled") {
     currentMatch.status = "active";
@@ -878,7 +962,7 @@ function incrementScore(team) {
   renderActiveScoreboard();
   
   // Speak vocal call
-  speakCurrentScore(newScoreA, newScoreB, team);
+  speakCurrentScore(scoringRules.isTraditional ? tennisPointLabel("A") : newScoreA, scoringRules.isTraditional ? tennisPointLabel("B") : newScoreB, team);
   
   // Commit to DB (Firebase or LocalStorage)
   saveMatchToDatabase(currentMatch);
@@ -929,6 +1013,7 @@ function performUndo() {
   
   currentMatch.teamAScore = prevState.teamAScore;
   currentMatch.teamBScore = prevState.teamBScore;
+  currentMatch.tennisScore = prevState.tennisScore ? JSON.parse(JSON.stringify(prevState.tennisScore)) : currentMatch.tennisScore;
   currentMatch.scoreHistory = history;
   
   // If reverted back to 0-0, reset active status if scheduled previously
@@ -944,6 +1029,10 @@ function performUndo() {
 // 7. QUICK MANUAL ENTRY (METHOD B)
 function openQuickScoreSheet() {
   if (!currentMatch || currentMatch.status === "finalized") return;
+  if (getActiveScoringRules().isTraditional) {
+    alert("Traditional tennis/padel matches use point-by-point game and set scoring. Use the scoreboard controls to enter scores.");
+    return;
+  }
   
   document.getElementById("quick-score-a").value = currentMatch.teamAScore;
   document.getElementById("quick-score-b").value = currentMatch.teamBScore;
@@ -1042,43 +1131,51 @@ function saveQuickScores() {
 function triggerFinalizeModal() {
   if (!currentMatch || currentMatch.status === "finalized") return;
   
-  // Offline Lock Check
   if (!isOnline && firebaseEnabled) {
     alert("Match finalization is disabled while offline. Please restore connection first.");
     return;
   }
   
+  const scoringRules = getActiveScoringRules();
   const scoreA = currentMatch.teamAScore;
   const scoreB = currentMatch.teamBScore;
+  const tennisScore = scoringRules.isTraditional ? ensureTraditionalScore(currentMatch) : null;
+  const hasTraditionalProgress = tennisScore && (tennisScore.pointA || tennisScore.pointB || tennisScore.gamesA || tennisScore.gamesB || tennisScore.setsA || tennisScore.setsB);
   
-  // Require some score
-  if (scoreA === 0 && scoreB === 0) {
-    alert("Cannot finalize a match with a 0-0 score. Add points first!");
-    return;
-  }
-  
-  // If tied, prohibit directly
-  if (scoreA === scoreB) {
-    alert("Ties are prohibited. Play one deciding rally before finalization!");
-    return;
-  }
-  
-  // Normal score limit check, warn if both under 15 and timer not up
-  if (scoreA < 15 && scoreB < 15 && timerRemainingSeconds > 0) {
-    if (!confirm("Match has not reached 15 points, and the timer is still active. Finalize as a time-limit match anyway?")) {
+  if (scoringRules.isTraditional) {
+    if (!hasTraditionalProgress) {
+      alert("Cannot finalize a match with no tennis score progress. Add points first!");
       return;
     }
-    currentMatch.finishReason = "time-limit";
-  } else if (scoreA === 15 || scoreB === 15) {
-    currentMatch.finishReason = "target-score";
+    if (isTraditionalMatchComplete(tennisScore, scoringRules)) {
+      currentMatch.finishReason = "match-complete";
+    } else {
+      if (!confirm("This match has not reached its natural conclusion. Finalize the current game and set scores anyway?")) return;
+      currentMatch.finishReason = "time-limit";
+    }
   } else {
-    currentMatch.finishReason = "time-limit";
+    if (scoreA === 0 && scoreB === 0) {
+      alert("Cannot finalize a match with a 0-0 score. Add points first!");
+      return;
+    }
+    if (scoreA === scoreB) {
+      alert("Ties are prohibited. Play one deciding rally before finalization!");
+      return;
+    }
+    const reachesTarget = Math.max(scoreA, scoreB) >= scoringRules.pointsToWin && Math.abs(scoreA - scoreB) >= scoringRules.winBy;
+    if (!reachesTarget && timerRemainingSeconds > 0) {
+      if (!confirm(`Match has not reached ${scoringRules.pointsToWin} points, and the timer is still active. Finalize as a time-limit match anyway?`)) return;
+      currentMatch.finishReason = "time-limit";
+    } else {
+      currentMatch.finishReason = reachesTarget ? "target-score" : "time-limit";
+    }
   }
   
-  // Render Modal
   document.getElementById("finalize-modal-teams").textContent = `${currentMatch.teamA.join(" / ")} vs ${currentMatch.teamB.join(" / ")}`;
-  document.getElementById("finalize-modal-score").textContent = `${scoreA} – ${scoreB}`;
-  document.getElementById("finalize-modal-reason").textContent = currentMatch.finishReason === "target-score" ? "Target Score of 15 Achieved" : "Time-Limit Termination";
+  document.getElementById("finalize-modal-score").textContent = formatMatchScore(currentMatch);
+  document.getElementById("finalize-modal-reason").textContent = scoringRules.isTraditional
+    ? (currentMatch.finishReason === "match-complete" ? "Match Complete" : "Time-Limit Tennis Result")
+    : (currentMatch.finishReason === "target-score" ? `Target Score of ${scoringRules.pointsToWin} Achieved` : "Time-Limit Termination");
   
   document.getElementById("finalize-modal-overlay").classList.add("active");
 }
@@ -1778,7 +1875,9 @@ function renderSportChoices() {
 }
 function selectSport(sport) {
   if (!SPORT_RULE_PRESETS[sport]) return;
+  const previousSport = builderDraft.sport;
   builderDraft.sport = sport;
+  if (previousSport !== sport) builderDraft.scoringFormat = ["tennis", "padel"].includes(sport) ? "traditional-tennis" : "points";
   document.querySelectorAll("[data-sport]").forEach((button) => button.classList.toggle("selected", button.dataset.sport === sport));
   document.getElementById("builder-sport-continue").disabled = false;
   renderEventChoices(); applyOfficialRulePreset();
@@ -1799,7 +1898,9 @@ function selectTournamentType(type = "mixed-doubles") {
 function continueTournamentType() { showBuilderStep("format"); }
 function applyOfficialRulePreset() {
   const sport = SPORT_RULE_PRESETS[builderDraft.sport] || SPORT_RULE_PRESETS.pickleball;
-  builderDraft.ruleConfiguration = { mode: builderDraft.scoringMode || "official", sport: builderDraft.sport, ...sport.defaults };
+  if (["tennis", "padel"].includes(builderDraft.sport) && !builderDraft.scoringFormat) builderDraft.scoringFormat = "traditional-tennis";
+  if (!["tennis", "padel"].includes(builderDraft.sport)) builderDraft.scoringFormat = "points";
+  builderDraft.ruleConfiguration = { mode: builderDraft.scoringMode || "official", sport: builderDraft.sport, scoringFormat: builderDraft.scoringFormat, ...sport.defaults };
   const points = document.getElementById("builder-points-to-win"); if (points && sport.defaults.targetScore) points.value = sport.defaults.targetScore;
   const winBy = document.getElementById("builder-win-by"); if (winBy && sport.defaults.winBy) winBy.value = sport.defaults.winBy;
   renderScoringConfiguration();
@@ -1813,6 +1914,7 @@ function renderScoringConfiguration() {
   const sport = SPORT_RULE_PRESETS[builderDraft.sport] || SPORT_RULE_PRESETS.pickleball;
   const scoringOptions = document.getElementById("builder-scoring-format-options");
   const pointFields = document.getElementById("builder-point-scoring-fields");
+  const traditionalFields = document.getElementById("builder-traditional-scoring-fields");
   const usesTraditionalOption = ["tennis", "padel"].includes(builderDraft.sport);
   if (scoringOptions) {
     scoringOptions.classList.toggle("hidden", !usesTraditionalOption);
@@ -1821,7 +1923,10 @@ function renderScoringConfiguration() {
       <label class="radio-card"><input type="radio" name="builder-scoring-format" value="points" ${builderDraft.scoringFormat === "points" ? "checked" : ""} onchange="updateBuilderScoringFormat()" /><span><strong>Points</strong><small>Use a target score and winning margin.</small></span></label>` : "";
   }
   if (!usesTraditionalOption) builderDraft.scoringFormat = "points";
+  if (builderDraft.sport === "padel" && document.getElementById("builder-tennis-sets")?.value === "5") document.getElementById("builder-tennis-sets").value = "3";
+  document.querySelector('#builder-tennis-sets option[value="5"]')?.classList.toggle("hidden", builderDraft.sport === "padel");
   if (pointFields) pointFields.classList.toggle("hidden", usesTraditionalOption && builderDraft.scoringFormat !== "points");
+  if (traditionalFields) traditionalFields.classList.toggle("hidden", !usesTraditionalOption || builderDraft.scoringFormat === "points");
   const summary = document.getElementById("official-rules-summary");
   if (summary) summary.innerHTML = `<strong>${sport.name} official preset</strong><p>${Object.entries(sport.defaults).map(([k,v]) => `${k}: ${v ?? "none"}`).join(" · ")}</p>`;
   const common = document.getElementById("scoring-common-settings");
@@ -1832,8 +1937,21 @@ function renderScoringConfiguration() {
 }
 function collectRuleInputs() {
   const sport = SPORT_RULE_PRESETS[builderDraft.sport] || SPORT_RULE_PRESETS.pickleball;
-  const rules = { mode: builderDraft.scoringMode || "official", sport: builderDraft.sport, ...sport.defaults };
-  if (["tennis", "padel"].includes(builderDraft.sport) && builderDraft.scoringFormat !== "points") rules.scoringSystem = "traditional-tennis";
+  const rules = { mode: builderDraft.scoringMode || "official", sport: builderDraft.sport, scoringFormat: builderDraft.scoringFormat || "points", ...sport.defaults };
+  if (["tennis", "padel"].includes(builderDraft.sport) && builderDraft.scoringFormat !== "points") {
+    const tieBreakValue = document.getElementById("builder-tiebreak")?.value || "6-6";
+    rules.scoringFormat = "traditional-tennis";
+    rules.scoringSystem = "traditional-tennis";
+    rules.sets = Number(document.getElementById("builder-tennis-sets")?.value || 3);
+    rules.gamesPerSet = Number(document.getElementById("builder-games-per-set")?.value || 6);
+    rules.tieBreak = tieBreakValue !== "none";
+    rules.tieBreakAt = tieBreakValue === "6-6" ? "6-6" : null;
+    rules.finalSetSuperTieBreak = tieBreakValue === "final-set-super";
+  } else {
+    rules.scoringFormat = "points";
+    rules.targetScore = Number(document.getElementById("builder-points-to-win")?.value || sport.defaults.targetScore || 15);
+    rules.winBy = Number(document.getElementById("builder-win-by")?.value || sport.defaults.winBy || 1);
+  }
   document.querySelectorAll("#scoring-common-settings [data-rule-key], #scoring-advanced-content [data-rule-key]").forEach((input) => {
     const key = input.dataset.ruleKey;
     if (!key) return;
@@ -1860,6 +1978,7 @@ function collectBuilderDraft() {
   builderDraft.location = document.getElementById("builder-location")?.value?.trim() || "";
   builderDraft.format = document.getElementById("builder-format")?.value || "round-robin";
   builderDraft.ruleConfiguration = collectRuleInputs();
+  builderDraft.scoringFormat = builderDraft.ruleConfiguration.scoringFormat;
   return builderDraft;
 }
 function preparePlayerNamesStep() {
@@ -1929,7 +2048,7 @@ function renderBuilderPublishSummary() {
 function generateBuilderFixtures() { renderBuilderReview(); showBuilderStep("preview"); }
 function publishBuilderTournament() {
   const matches = buildDraftMatches();
-  activeTournament = { id: `local-${Date.now()}`, name: builderDraft.name, sport: builderDraft.sport, event: builderDraft.tournamentType, format: builderDraft.format, numberOfCourts: builderDraft.numberOfCourts, pointsToWin: builderDraft.pointsToWin, status: "published", settings: { numberOfRounds: builderDraft.roundCount, roundDurationMinutes: builderDraft.roundDurationMinutes, intervalMinutes: builderDraft.roundGapMinutes, winBy: builderDraft.winBy, ruleConfiguration: builderDraft.ruleConfiguration } };
+  activeTournament = { id: `local-${Date.now()}`, name: builderDraft.name, sport: builderDraft.sport, event: builderDraft.tournamentType, format: builderDraft.format, numberOfCourts: builderDraft.numberOfCourts, pointsToWin: builderDraft.pointsToWin, winBy: builderDraft.winBy, status: "published", settings: { sport: builderDraft.sport, scoringFormat: builderDraft.scoringFormat, numberOfRounds: builderDraft.roundCount, roundDurationMinutes: builderDraft.roundDurationMinutes, intervalMinutes: builderDraft.roundGapMinutes, winBy: builderDraft.winBy, ruleConfiguration: builderDraft.ruleConfiguration } };
   matchesCache = matches;
   if (!firebaseEnabled) {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(matches));
